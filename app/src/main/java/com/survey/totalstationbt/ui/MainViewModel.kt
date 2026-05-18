@@ -140,6 +140,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ── 目前施測編碼 ─────────────────────────────
     var currentCode: String = ""
 
+    // ── DXF 底圖快取 (跨 Activity 共享) ──────────
+    companion object {
+        var cachedDxfData: com.survey.totalstationbt.model.DxfData? = null
+        var cachedDxfTransform: com.survey.totalstationbt.model.DxfTransform = com.survey.totalstationbt.model.DxfTransform.IDENTITY
+    }
+
     sealed class ExportResult {
         data class Success(val file: File) : ExportResult()
         data class Error(val message: String) : ExportResult()
@@ -288,6 +294,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun updatePointNote(pointId: Long, note: String) {
         viewModelScope.launch { repository.updatePointNote(pointId, note) }
+    }
+
+    fun updatePointCode(pointId: Long, code: String) {
+        viewModelScope.launch { repository.updatePointCode(pointId, code) }
     }
 
     fun uploadToNikon() {

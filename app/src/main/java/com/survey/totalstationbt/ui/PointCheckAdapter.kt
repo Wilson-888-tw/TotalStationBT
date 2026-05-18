@@ -58,7 +58,12 @@ class PointCheckAdapter(
         RecyclerView.ViewHolder(binding.root) {
 
         fun bind(item: PointEntity) {
-            binding.tvPointName.text = item.pointName
+            binding.tvPointName.text = buildString {
+                append(item.pointName)
+                if (item.code.isNotEmpty()) {
+                    append(" [${item.code}]")
+                }
+            }
             binding.tvPointCoords.text = buildString {
                 append(String.format("%.1f", item.easting ?: 0.0))
                 append(", ")

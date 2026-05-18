@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="8dp">
+
+        <!-- 模式切換 -->
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/toggleAlignMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:singleSelection="true"
+            app:selectionRequired="true">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnModeTwoPoint"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="兩點校正" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnModeManual"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="手動輸入" />
+
+        </com.google.android.material.button.MaterialButtonToggleGroup>
+
+        <!-- ── 兩點校正區塊 ────────────────────── -->
+        <LinearLayout
+            android:id="@+id/layoutTwoPoint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- 錨點 1 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="錨點 1"
+                android:textColor="@color/md3_secondary"
+                android:textSize="12sp"
+                android:textAllCaps="true"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="6dp" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="6dp"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                    android:hint="DXF X">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etA1x"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                    android:hint="DXF Y">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etA1y"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPickPoint1"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:paddingStart="0dp"
+                android:text="從已匯入點位選取 E/N ▾"
+                android:textSize="12sp" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginBottom="12dp">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="6dp"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                    android:hint="測量 E (m)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etA1e"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                    android:hint="測量 N (m)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etA1n"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+            </LinearLayout>
+
+            <!-- 錨點 2 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="錨點 2"
+                android:textColor="@color/md3_secondary"
+                android:textSize="12sp"
+                android:textAllCaps="true"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="6dp" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="6dp"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                    android:hint="DXF X">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etA2x"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                    android:hint="DXF Y">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etA2y"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPickPoint2"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:paddingStart="0dp"
+                android:text="從已匯入點位選取 E/N ▾"
+                android:textSize="12sp" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="6dp"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                    android:hint="測量 E (m)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etA2e"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                    android:hint="測量 N (m)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etA2n"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- ── 手動輸入區塊 ────────────────────── -->
+        <LinearLayout
+            android:id="@+id/layoutManual"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                android:hint="X 偏移 dx（公尺，DXF原點→E方向）">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etManualDx"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="numberDecimal|numberSigned"
+                    android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                android:hint="Y 偏移 dy（公尺，DXF原點→N方向）">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etManualDy"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="numberDecimal|numberSigned"
+                    android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                android:hint="縮放比例（例：0.001 表示 mm→m）">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etManualScale"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="numberDecimal"
+                    android:textColor="@color/md3_on_surface" android:textSize="13sp"
+                    android:text="1" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                android:hint="旋轉角度（°，逆時針為正）">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etManualRotation"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="numberDecimal|numberSigned"
+                    android:textColor="@color/md3_on_surface" android:textSize="13sp"
+                    android:text="0" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+        </LinearLayout>
+
+        <!-- 計算結果預覽 -->
+        <TextView
+            android:id="@+id/tvAlignResult"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textColor="@color/md3_secondary"
+            android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+</ScrollView>

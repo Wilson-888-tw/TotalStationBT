@@ -24,6 +24,7 @@ class DataAdapter(
     sealed class Action {
         data class Photo(val line: BluetoothSerialService.ReceivedLine) : Action()
         data class Share(val line: BluetoothSerialService.ReceivedLine) : Action()
+        data class Edit(val line: BluetoothSerialService.ReceivedLine) : Action()
         data class SelectionChanged(val count: Int) : Action()
     }
 
@@ -65,6 +66,10 @@ class DataAdapter(
         holder.checkItem.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) selectedLines.add(item) else selectedLines.remove(item)
             onAction(Action.SelectionChanged(selectedLines.size))
+        }
+
+        holder.itemView.setOnClickListener {
+            onAction(Action.Edit(item))
         }
 
         holder.tvTime.text = timeFmt.format(Date(item.timestamp))

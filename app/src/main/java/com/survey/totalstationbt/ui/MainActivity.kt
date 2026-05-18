@@ -99,6 +99,7 @@ class MainActivity : AppCompatActivity() {
             when (action) {
                 is DataAdapter.Action.Photo -> startCamera(action.line)
                 is DataAdapter.Action.Share -> sharePoint(action.line)
+                is DataAdapter.Action.Edit -> showEditCodeDialog(action.line)
                 is DataAdapter.Action.SelectionChanged -> {
                     if (action.count > 0) {
                         binding.btnDeleteSelected.visibility = android.view.View.VISIBLE
@@ -330,6 +331,26 @@ class MainActivity : AppCompatActivity() {
     private fun connectDevice(device: BluetoothDeviceInfo) {
         viewModel.connectDevice(device)
         showSnackbar("正在連線 ${device.name}…")
+    }
+
+    private fun showEditCodeDialog(line: com.survey.totalstationbt.bluetooth.BluetoothSerialService.ReceivedLine) {
+        val point = viewModel.currentPoints.value.find { it.timestamp == line.timestamp } ?: return
+        val input = android.widget.EditText(this)
+        input.setText(point.code)
+        input.hint = "輸入施測編碼"
+        input.setSelection(input.text.length)
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("修改施測編碼")
+            .setMessage("點號：${point.pointName}")
+            .setView(input)
+            .setPositiveButton("儲存") { _, _ ->
+                val newCode = input.text.toString().trim().uppercase()
+                viewModel.updatePointCode(point.id, newCode)
+                showSnackbar("編碼已更新")
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun showDisconnectDialog() {

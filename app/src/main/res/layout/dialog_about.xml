@@ -171,6 +171,44 @@
 
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- 底圖載入與對齊 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="@color/md3_surface_container"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="底圖載入與對齊"
+                    android:textColor="@color/md3_secondary"
+                    android:textSize="12sp"
+                    android:textAllCaps="true"
+                    android:letterSpacing="0.1"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="1. 進入「2D 平面圖」視窗\n2. 點擊右上角選單 →「載入 DXF 底圖」\n3. 選擇手機內的 .dxf 檔案\n4. 若圖檔非真實座標，請使用「兩點對齊」：\n   • 輸入圖面上兩點的 CAD 座標 (X, Y)\n   • 輸入對應的現場實測座標 (E, N)\n   • 系統會自動計算縮放、旋轉與平移參數"
+                    android:textColor="@color/md3_on_surface"
+                    android:textSize="13sp"
+                    android:lineSpacingExtra="3dp" />
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- 手機端連線流程 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -209,7 +247,7 @@
                     <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="2" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="系統設定 → 藍牙 → 掃描 → 找到 Nivo 2M+" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="配對碼通常是 0000 或 1234" android:textColor="@color/text_hint" android:textSize="11sp" android:layout_marginTop="1dp" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Nikon 2m+ 藍牙 PIN 碼：0530" android:textColor="@color/md3_secondary" android:textSize="11sp" android:textStyle="bold" android:layout_marginTop="1dp" />
                     </LinearLayout>
                 </LinearLayout>
 

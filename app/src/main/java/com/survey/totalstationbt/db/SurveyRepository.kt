@@ -44,7 +44,11 @@ class SurveyRepository(private val surveyDao: SurveyDao) {
         surveyDao.updatePoint(point)
     }
 
-    suspend fun updatePointNote(id: Long, note: String) {
-        surveyDao.updatePointNote(id, note)
+    suspend fun updatePointNote(pointId: Long, note: String) {
+        surveyDao.updatePointNote(pointId, note)
+    }
+
+    suspend fun updatePointCode(pointId: Long, code: String) {
+        surveyDao.updatePointCode(pointId, code)
     }
 }

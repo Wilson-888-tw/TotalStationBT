@@ -9,7 +9,15 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import com.survey.totalstationbt.db.PointEntity
+import com.survey.totalstationbt.model.DxfData
+import com.survey.totalstationbt.model.DxfEntity
+import com.survey.totalstationbt.model.DxfSnapPoint
+import com.survey.totalstationbt.model.DxfTapMode
+import com.survey.totalstationbt.model.DxfTransform
+import com.survey.totalstationbt.model.SnapType
 import com.survey.totalstationbt.utils.SurveyMathUtils
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -25,6 +33,12 @@ class SurveyCanvasView @JvmOverloads constructor(
     private var showOriginalLines = true
     private var elevationBasePoint: PointEntity? = null
     private var baselinePoints: Pair<PointEntity, PointEntity>? = null
+
+    // ── DXF 底圖 ──────────────────────────────────
+    private var dxfData: DxfData? = null
+    private var dxfTransform = DxfTransform.IDENTITY
+    var showDxf = true
+        set(value) { field = value; invalidate() }
 
     // 海拔色帶模式
     var elevationColorMode = false
@@ -47,9 +61,38 @@ class SurveyCanvasView @JvmOverloads constructor(
     private val PI_HALF = (Math.PI / 2.0).toFloat()
     private val ROTATE_SENS = 0.005f
 
+    // 3D 雙指平移追蹤
+    private var twoFingerMidX = 0f
+    private var twoFingerMidY = 0f
+    private var isTwoFingerDragging = false
+
     // 外部回呼
     var onSelectionChanged: ((List<PointEntity>) -> Unit)? = null
     var onLongPressPoint: ((PointEntity) -> Unit)? = null
+
+    // DXF 互動模式
+    var dxfTapMode = DxfTapMode.NONE
+        set(v) { field = v; highlightedEntity = null; highlightedSnapPt = null; invalidate() }
+    private var highlightedEntity: DxfEntity? = null
+    private var highlightedSnapPt: DxfSnapPoint? = null
+    var onDxfEntityTapped: ((DxfEntity) -> Unit)? = null
+    var onDxfSnapPicked: ((DxfSnapPoint) -> Unit)? = null
+
+    // DXF 量測
+    private val measurePoints = mutableListOf<DxfSnapPoint>()
+    var onMeasureUpdated: ((List<DxfSnapPoint>) -> Unit)? = null
+
+    // DXF 相對位置
+    private var relativePointA: DxfSnapPoint? = null
+    private var relativePointB: DxfSnapPoint? = null
+    var onRelativePointA: ((DxfSnapPoint) -> Unit)? = null
+    var onRelativePointsPicked: ((DxfSnapPoint, DxfSnapPoint) -> Unit)? = null
+
+    fun clearRelativePoints() {
+        relativePointA = null
+        relativePointB = null
+        invalidate()
+    }
 
     // ── Setters ──────────────────────────────────
     fun setVisiblePointIds(ids: Set<Long>) {
@@ -129,6 +172,55 @@ class SurveyCanvasView @JvmOverloads constructor(
         typeface = Typeface.DEFAULT_BOLD
     }
 
+    // DXF 底圖筆
+    private val dxfPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(200, 90, 140, 200)
+        strokeWidth = 1.5f
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val dxfHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(255, 255, 200, 0)
+        strokeWidth = 3f; style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+    }
+    private val dxfSnapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(255, 0, 230, 255)
+        strokeWidth = 2f; style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
+    }
+    private val measureLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(230, 255, 165, 0); strokeWidth = 2f
+        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
+    }
+    private val measureFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(35, 255, 165, 0); style = Paint.Style.FILL
+    }
+    private val measureMarkerFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(255, 0, 210, 160); style = Paint.Style.FILL
+    }
+    private val measureMarkerStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; strokeWidth = 1.5f; style = Paint.Style.STROKE
+    }
+    private val measureTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; textSize = 26f
+        typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER
+        setShadowLayer(3f, 0f, 0f, Color.BLACK)
+    }
+    private val measureLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(255, 255, 220, 80); textSize = 22f
+        typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER
+        setShadowLayer(3f, 0f, 0f, Color.BLACK)
+    }
+    private val relativeLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(220, 180, 100, 255); strokeWidth = 2f
+        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
+        pathEffect = DashPathEffect(floatArrayOf(8f, 5f), 0f)
+    }
+    private val relativeMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(255, 180, 100, 255); style = Paint.Style.FILL
+    }
+
     // 指北箭頭
     private val northFillPaint = Paint().apply {
         color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true
@@ -170,17 +262,58 @@ class SurveyCanvasView @JvmOverloads constructor(
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent,
                                   distanceX: Float, distanceY: Float): Boolean {
-                if (is3DMode && !scaleDetector.isInProgress) {
-                    viewAzimuth -= distanceX * ROTATE_SENS
-                    viewPitch    = (viewPitch - distanceY * ROTATE_SENS).coerceIn(0.05f, PI_HALF)
-                    updateProjection()
-                    invalidate()
+                if (is3DMode) {
+                    // 單指旋轉；雙指平移由 onTouchEvent 的 midpoint 追蹤處理
+                    if (e2.pointerCount == 1 && !scaleDetector.isInProgress) {
+                        viewAzimuth -= distanceX * ROTATE_SENS
+                        viewPitch    = (viewPitch - distanceY * ROTATE_SENS).coerceIn(0.05f, PI_HALF)
+                        updateProjection()
+                        invalidate()
+                    }
                 } else if (!is3DMode) {
                     translateX -= distanceX; translateY -= distanceY; invalidate()
                 }
                 return true
             }
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                if (!is3DMode) {
+                    when (dxfTapMode) {
+                        DxfTapMode.QUERY -> {
+                            hitTestDxf(e.x, e.y)?.let { entity ->
+                                highlightedEntity = entity; highlightedSnapPt = null; invalidate()
+                                onDxfEntityTapped?.invoke(entity); return true
+                            }
+                        }
+                        DxfTapMode.SNAP -> {
+                            findNearestSnapPoint(e.x, e.y)?.let { snap ->
+                                highlightedSnapPt = snap; highlightedEntity = null; invalidate()
+                                onDxfSnapPicked?.invoke(snap); return true
+                            }
+                        }
+                        DxfTapMode.MEASURE -> {
+                            findNearestSnapPoint(e.x, e.y)?.let { snap ->
+                                measurePoints.add(snap); invalidate()
+                                onMeasureUpdated?.invoke(measurePoints.toList()); return true
+                            }
+                        }
+                        DxfTapMode.RELATIVE -> {
+                            findNearestAnyPoint(e.x, e.y)?.let { snap ->
+                                if (relativePointA == null || relativePointB != null) {
+                                    relativePointA = snap
+                                    relativePointB = null
+                                    invalidate()
+                                    onRelativePointA?.invoke(snap)
+                                } else {
+                                    relativePointB = snap
+                                    invalidate()
+                                    onRelativePointsPicked?.invoke(relativePointA!!, snap)
+                                }
+                                return true
+                            }
+                        }
+                        DxfTapMode.NONE -> {}
+                    }
+                }
                 findClickedPoint(e.x, e.y)?.let { clicked ->
                     if (selectedPoints.contains(clicked)) selectedPoints.remove(clicked)
                     else selectedPoints.add(clicked)
@@ -201,7 +334,35 @@ class SurveyCanvasView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
-        if (event.action == MotionEvent.ACTION_UP) performClick()
+
+        // 3D 雙指平移：追蹤兩指中點位移
+        if (is3DMode) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (event.pointerCount == 2) {
+                        twoFingerMidX = (event.getX(0) + event.getX(1)) / 2f
+                        twoFingerMidY = (event.getY(0) + event.getY(1)) / 2f
+                        isTwoFingerDragging = true
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (event.pointerCount == 2 && isTwoFingerDragging) {
+                        val midX = (event.getX(0) + event.getX(1)) / 2f
+                        val midY = (event.getY(0) + event.getY(1)) / 2f
+                        translateX += midX - twoFingerMidX
+                        translateY += midY - twoFingerMidY
+                        twoFingerMidX = midX
+                        twoFingerMidY = midY
+                        invalidate()
+                    }
+                }
+                MotionEvent.ACTION_POINTER_UP,
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> isTwoFingerDragging = false
+            }
+        }
+
+        if (event.actionMasked == MotionEvent.ACTION_UP) performClick()
         return true
     }
 
@@ -248,25 +409,62 @@ class SurveyCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun setDxf(data: DxfData?, transform: DxfTransform = DxfTransform.IDENTITY) {
+        dxfData = data
+        dxfTransform = transform
+        calculateBounds()
+        invalidate()
+    }
+
+    fun clearDxf() { setDxf(null) }
+
     private fun calculateBounds() {
-        if (points.isEmpty()) return
-        minE = points.mapNotNull { it.easting  }.minOrNull() ?: 0.0
-        maxE = points.mapNotNull { it.easting  }.maxOrNull() ?: 0.0
-        minN = points.mapNotNull { it.northing }.minOrNull() ?: 0.0
-        maxN = points.mapNotNull { it.northing }.maxOrNull() ?: 0.0
-        minZ = points.mapNotNull { it.elevation }.minOrNull() ?: 0.0
-        maxZ = points.mapNotNull { it.elevation }.maxOrNull() ?: 0.0
+        val hasPoints = points.isNotEmpty()
+        val hasDxf = dxfData != null && !dxfData!!.isEmpty
+
+        if (!hasPoints && !hasDxf) return
+
+        if (hasPoints) {
+            minE = points.mapNotNull { it.easting  }.minOrNull() ?: 0.0
+            maxE = points.mapNotNull { it.easting  }.maxOrNull() ?: 0.0
+            minN = points.mapNotNull { it.northing }.minOrNull() ?: 0.0
+            maxN = points.mapNotNull { it.northing }.maxOrNull() ?: 0.0
+            minZ = points.mapNotNull { it.elevation }.minOrNull() ?: 0.0
+            maxZ = points.mapNotNull { it.elevation }.maxOrNull() ?: 0.0
+        }
+
+        dxfData?.let { dxf ->
+            val corners = listOf(
+                dxfTransform.toWorld(dxf.minX, dxf.minY),
+                dxfTransform.toWorld(dxf.maxX, dxf.minY),
+                dxfTransform.toWorld(dxf.minX, dxf.maxY),
+                dxfTransform.toWorld(dxf.maxX, dxf.maxY)
+            )
+            val dMinE = corners.minOf { it.first }
+            val dMaxE = corners.maxOf { it.first }
+            val dMinN = corners.minOf { it.second }
+            val dMaxN = corners.maxOf { it.second }
+            if (!hasPoints) {
+                minE = dMinE; maxE = dMaxE; minN = dMinN; maxN = dMaxN
+            } else {
+                minE = min(minE, dMinE); maxE = max(maxE, dMaxE)
+                minN = min(minN, dMinN); maxN = max(maxN, dMaxN)
+            }
+        }
         autoFit()
     }
 
     fun autoFit() {
         if (is3DMode) { autoFit3D(); return }
-        if (points.isEmpty()) return
+        val hasPoints = points.isNotEmpty()
+        val hasDxf = dxfData != null && !dxfData!!.isEmpty
+        if (!hasPoints && !hasDxf) return
+        
         val rangeE = maxE - minE; val rangeN = maxN - minN
         val viewW = width.toFloat(); val viewH = height.toFloat()
         if (viewW == 0f || viewH == 0f) return
-        val scaleE = if (rangeE != 0.0) viewW * 0.8f / rangeE.toFloat() else 1f
-        val scaleN = if (rangeN != 0.0) viewH * 0.8f / rangeN.toFloat() else 1f
+        val scaleE = if (rangeE > 0.0) viewW * 0.8f / rangeE.toFloat() else 1f
+        val scaleN = if (rangeN > 0.0) viewH * 0.8f / rangeN.toFloat() else 1f
         scaleFactor = min(scaleE, scaleN)
         translateX = viewW / 2f - (rangeE / 2.0).toFloat() * scaleFactor
         translateY = viewH / 2f + (rangeN / 2.0).toFloat() * scaleFactor
@@ -303,9 +501,14 @@ class SurveyCanvasView @JvmOverloads constructor(
     }
 
     private fun autoFit3D() {
-        if (points.isEmpty() || width == 0 || height == 0) return
+        val hasPoints = points.isNotEmpty()
+        val hasDxf = dxfData != null && !dxfData!!.isEmpty // Note: DXF 3D support might be limited, but we check anyway
+        if ((!hasPoints && !hasDxf) || width == 0 || height == 0) return
+        
         var pMinX = Float.MAX_VALUE; var pMaxX = -Float.MAX_VALUE
         var pMinY = Float.MAX_VALUE; var pMaxY = -Float.MAX_VALUE
+        
+        // Points bounds
         points.forEach { pt ->
             val e = ((pt.easting ?: 0.0) - minE).toFloat()
             val n = ((pt.northing ?: 0.0) - minN).toFloat()
@@ -314,6 +517,21 @@ class SurveyCanvasView @JvmOverloads constructor(
             if (p.x < pMinX) pMinX = p.x; if (p.x > pMaxX) pMaxX = p.x
             if (p.y < pMinY) pMinY = p.y; if (p.y > pMaxY) pMaxY = p.y
         }
+        
+        // DXF bounds (treating as Z=0 for now in 3D auto-fit if points are present)
+        dxfData?.let { dxf ->
+            listOf(
+                dxfTransform.toWorld(dxf.minX, dxf.minY),
+                dxfTransform.toWorld(dxf.maxX, dxf.minY),
+                dxfTransform.toWorld(dxf.minX, dxf.maxY),
+                dxfTransform.toWorld(dxf.maxX, dxf.maxY)
+            ).forEach { (we, wn) ->
+                val p = project3D((we - minE).toFloat(), (wn - minN).toFloat(), 0f)
+                if (p.x < pMinX) pMinX = p.x; if (p.x > pMaxX) pMaxX = p.x
+                if (p.y < pMinY) pMinY = p.y; if (p.y > pMaxY) pMaxY = p.y
+            }
+        }
+
         val rangeX = pMaxX - pMinX; val rangeY = pMaxY - pMinY
         val viewW = width.toFloat(); val viewH = height.toFloat()
         val scaleX = if (rangeX > 0) viewW * 0.72f / rangeX else 1f
@@ -383,6 +601,9 @@ class SurveyCanvasView @JvmOverloads constructor(
         selectionPaint.strokeWidth = strokeWidth
         selectionLinePaint.strokeWidth = 5f / scaleFactor
 
+        // DXF 底圖（最先畫，在最底層）
+        if (showDxf) drawDxf2D(canvas)
+
         // 原始連線
         if (showOriginalLines) {
             drawPath.reset(); var first = true
@@ -440,7 +661,379 @@ class SurveyCanvasView @JvmOverloads constructor(
             canvas.restore()
         }
 
+        // 量測疊加層
+        if (measurePoints.isNotEmpty()) drawMeasureOverlay(canvas)
+        // 相對位置疊加層
+        if (relativePointA != null) drawRelativeOverlay(canvas)
+
         canvas.restore()
+    }
+
+    // ── DXF 底圖繪製（2D 模式）───────────────────
+    private fun dxfToLocal(dxfX: Double, dxfY: Double): PointF {
+        val (e, n) = dxfTransform.toWorld(dxfX, dxfY)
+        return PointF((e - minE).toFloat(), (n - minN).toFloat())
+    }
+
+    private fun worldToLocal(worldE: Double, worldN: Double): PointF =
+        PointF((worldE - minE).toFloat(), (worldN - minN).toFloat())
+
+    private fun drawDxf2D(canvas: Canvas) {
+        val dxf = dxfData ?: return
+        dxfPaint.strokeWidth = 1.5f / scaleFactor
+
+        dxf.entities.forEach { entity ->
+            when (entity) {
+                is DxfEntity.Line -> {
+                    val p1 = dxfToLocal(entity.x1, entity.y1)
+                    val p2 = dxfToLocal(entity.x2, entity.y2)
+                    canvas.drawLine(p1.x, p1.y, p2.x, p2.y, dxfPaint)
+                }
+                is DxfEntity.Polyline -> {
+                    if (entity.vertices.isEmpty()) return@forEach
+                    val path = Path()
+                    entity.vertices.forEachIndexed { idx, v ->
+                        val p = dxfToLocal(v.x.toDouble(), v.y.toDouble())
+                        if (idx == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+                    }
+                    if (entity.closed) path.close()
+                    canvas.drawPath(path, dxfPaint)
+                }
+                is DxfEntity.Circle -> {
+                    val c = dxfToLocal(entity.cx, entity.cy)
+                    val r = (entity.radius * dxfTransform.scale).toFloat()
+                    canvas.drawCircle(c.x, c.y, r, dxfPaint)
+                }
+                is DxfEntity.Arc -> {
+                    val path = Path()
+                    var startDeg = entity.startDeg; var endDeg = entity.endDeg
+                    if (endDeg <= startDeg) endDeg += 360.0
+                    val steps = 48; val step = (endDeg - startDeg) / steps
+                    for (s in 0..steps) {
+                        val ar = Math.toRadians(startDeg + s * step)
+                        val p = dxfToLocal(entity.cx + entity.radius * cos(ar), entity.cy + entity.radius * sin(ar))
+                        if (s == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+                    }
+                    canvas.drawPath(path, dxfPaint)
+                }
+            }
+        }
+
+        // 高亮選中圖元（與 DXF 線同比例，略粗以示區別）
+        highlightedEntity?.let { entity ->
+            dxfHighlightPaint.strokeWidth = 2.5f / scaleFactor
+            drawDxfEntityPath(canvas, entity, dxfHighlightPaint)
+        }
+
+        // 捕捉點標記（十字 + 圓圈）
+        highlightedSnapPt?.let { snap ->
+            val p = worldToLocal(snap.worldE, snap.worldN)
+            val sz = 20f / scaleFactor
+            dxfSnapPaint.strokeWidth = 2f / scaleFactor
+            canvas.drawLine(p.x - sz, p.y, p.x + sz, p.y, dxfSnapPaint)
+            canvas.drawLine(p.x, p.y - sz, p.x, p.y + sz, dxfSnapPaint)
+            canvas.drawCircle(p.x, p.y, sz * 0.7f, dxfSnapPaint)
+        }
+    }
+
+    private fun drawDxfEntityPath(canvas: Canvas, entity: DxfEntity, paint: Paint) {
+        when (entity) {
+            is DxfEntity.Line -> {
+                val p1 = dxfToLocal(entity.x1, entity.y1)
+                val p2 = dxfToLocal(entity.x2, entity.y2)
+                canvas.drawLine(p1.x, p1.y, p2.x, p2.y, paint)
+            }
+            is DxfEntity.Polyline -> {
+                if (entity.vertices.isEmpty()) return
+                val path = Path()
+                entity.vertices.forEachIndexed { idx, v ->
+                    val p = dxfToLocal(v.x.toDouble(), v.y.toDouble())
+                    if (idx == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+                }
+                if (entity.closed) path.close()
+                canvas.drawPath(path, paint)
+            }
+            is DxfEntity.Circle -> {
+                val c = dxfToLocal(entity.cx, entity.cy)
+                val r = (entity.radius * dxfTransform.scale).toFloat()
+                canvas.drawCircle(c.x, c.y, r, paint)
+            }
+            is DxfEntity.Arc -> {
+                val path = Path()
+                var startDeg = entity.startDeg; var endDeg = entity.endDeg
+                if (endDeg <= startDeg) endDeg += 360.0
+                val steps = 48; val step = (endDeg - startDeg) / steps
+                for (s in 0..steps) {
+                    val ar = Math.toRadians(startDeg + s * step)
+                    val p = dxfToLocal(entity.cx + entity.radius * cos(ar), entity.cy + entity.radius * sin(ar))
+                    if (s == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+                }
+                canvas.drawPath(path, paint)
+            }
+        }
+    }
+
+    // ── DXF 點選 / 捕捉 ──────────────────────────
+    fun screenToWorld(screenX: Float, screenY: Float): Pair<Double, Double> {
+        val lx = (screenX - translateX) / scaleFactor
+        val ly = (screenY - translateY) / (-scaleFactor)
+        return (lx.toDouble() + minE) to (ly.toDouble() + minN)
+    }
+
+    private fun hitTestDxf(sx: Float, sy: Float): DxfEntity? {
+        val dxf = dxfData ?: return null
+        val (we, wn) = screenToWorld(sx, sy)
+        val tol = 20.0 / scaleFactor
+        var bestDist = tol; var best: DxfEntity? = null
+        dxf.entities.forEach { entity ->
+            val d = distToEntity(entity, we, wn)
+            if (d < bestDist) { bestDist = d; best = entity }
+        }
+        return best
+    }
+
+    private fun distToEntity(entity: DxfEntity, we: Double, wn: Double): Double = when (entity) {
+        is DxfEntity.Line -> {
+            val (e1, n1) = dxfTransform.toWorld(entity.x1, entity.y1)
+            val (e2, n2) = dxfTransform.toWorld(entity.x2, entity.y2)
+            ptSegDist(we, wn, e1, n1, e2, n2)
+        }
+        is DxfEntity.Polyline -> {
+            entity.vertices.zipWithNext().minOfOrNull { (v1, v2) ->
+                val (e1, n1) = dxfTransform.toWorld(v1.x.toDouble(), v1.y.toDouble())
+                val (e2, n2) = dxfTransform.toWorld(v2.x.toDouble(), v2.y.toDouble())
+                ptSegDist(we, wn, e1, n1, e2, n2)
+            } ?: Double.MAX_VALUE
+        }
+        is DxfEntity.Circle -> {
+            val (ce, cn) = dxfTransform.toWorld(entity.cx, entity.cy)
+            val r = entity.radius * dxfTransform.scale
+            abs(sqrt((we - ce) * (we - ce) + (wn - cn) * (wn - cn)) - r)
+        }
+        is DxfEntity.Arc -> {
+            val (ce, cn) = dxfTransform.toWorld(entity.cx, entity.cy)
+            val r = entity.radius * dxfTransform.scale
+            val distToCirc = abs(sqrt((we - ce) * (we - ce) + (wn - cn) * (wn - cn)) - r)
+            if (distToCirc > 40.0 / scaleFactor) {
+                distToCirc
+            } else {
+                val (dxCoord, dyCoord) = dxfTransform.inverse(we, wn)
+                var angle = Math.toDegrees(atan2(dyCoord - entity.cy, dxCoord - entity.cx))
+                if (angle < 0) angle += 360.0
+                var end = entity.endDeg; if (end <= entity.startDeg) end += 360.0
+                var a = angle; if (a < entity.startDeg) a += 360.0
+                if (a <= end) distToCirc else distToCirc + 100.0
+            }
+        }
+    }
+
+    private fun ptSegDist(px: Double, py: Double, ax: Double, ay: Double, bx: Double, by: Double): Double {
+        val abx = bx - ax; val aby = by - ay
+        val len2 = abx * abx + aby * aby
+        if (len2 < 1e-12) return sqrt((px - ax) * (px - ax) + (py - ay) * (py - ay))
+        val t = ((px - ax) * abx + (py - ay) * aby) / len2
+        val cx = ax + t.coerceIn(0.0, 1.0) * abx; val cy = ay + t.coerceIn(0.0, 1.0) * aby
+        return sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy))
+    }
+
+    // 優先命中既有量測點，fallback 到 DXF 捕捉點
+    private fun findNearestAnyPoint(sx: Float, sy: Float): DxfSnapPoint? {
+        // 1. 先嘗試尋找測量點 (Survey Points)
+        val nearSurvey = findClickedPoint(sx, sy)?.let { pt ->
+            com.survey.totalstationbt.model.DxfSnapPoint(
+                worldE = pt.easting ?: 0.0,
+                worldN = pt.northing ?: 0.0,
+                dxfX = 0.0,
+                dxfY = 0.0,
+                type = com.survey.totalstationbt.model.SnapType.ENDPOINT,
+                label = "測量點:${pt.pointName}"
+            )
+        }
+        
+        // 2. 尋找 DXF 捕捉點或量測點
+        val nearSnap = findNearestMeasureOrSnap(sx, sy)
+        
+        // 如果兩者都有，由於 findClickedPoint 的容許誤差較大 (80px)，
+        // 而 findNearestMeasureOrSnap 較小 (40px)，我們優先回傳捕捉點以利精確點選。
+        return nearSnap ?: nearSurvey
+    }
+
+    private fun findNearestMeasureOrSnap(sx: Float, sy: Float): DxfSnapPoint? {
+        val (we, wn) = screenToWorld(sx, sy)
+        val tol = 40.0 / scaleFactor
+        val nearMeasure = measurePoints.minByOrNull { s ->
+            sqrt((we - s.worldE) * (we - s.worldE) + (wn - s.worldN) * (wn - s.worldN))
+        }?.takeIf { s ->
+            sqrt((we - s.worldE) * (we - s.worldE) + (wn - s.worldN) * (wn - s.worldN)) < tol
+        }
+        return nearMeasure ?: findNearestSnapPoint(sx, sy)
+    }
+
+    private fun findNearestSnapPoint(sx: Float, sy: Float): DxfSnapPoint? {
+        val dxf = dxfData ?: return null
+        val (we, wn) = screenToWorld(sx, sy)
+        val tol = 40.0 / scaleFactor
+        var bestDist = tol; var best: DxfSnapPoint? = null
+
+        fun tryAdd(snapE: Double, snapN: Double, dxX: Double, dxY: Double, type: SnapType, lbl: String) {
+            val d = sqrt((we - snapE) * (we - snapE) + (wn - snapN) * (wn - snapN))
+            if (d < bestDist) { bestDist = d; best = DxfSnapPoint(snapE, snapN, dxX, dxY, type, lbl) }
+        }
+
+        dxf.entities.forEach { entity ->
+            when (entity) {
+                is DxfEntity.Line -> {
+                    val (e1, n1) = dxfTransform.toWorld(entity.x1, entity.y1)
+                    val (e2, n2) = dxfTransform.toWorld(entity.x2, entity.y2)
+                    tryAdd(e1, n1, entity.x1, entity.y1, SnapType.ENDPOINT, "端點")
+                    tryAdd(e2, n2, entity.x2, entity.y2, SnapType.ENDPOINT, "端點")
+                    val (em, nm) = dxfTransform.toWorld((entity.x1 + entity.x2) / 2, (entity.y1 + entity.y2) / 2)
+                    tryAdd(em, nm, (entity.x1 + entity.x2) / 2, (entity.y1 + entity.y2) / 2, SnapType.MIDPOINT, "中點")
+                }
+                is DxfEntity.Polyline -> {
+                    entity.vertices.forEach { v ->
+                        val (ve, vn) = dxfTransform.toWorld(v.x.toDouble(), v.y.toDouble())
+                        tryAdd(ve, vn, v.x.toDouble(), v.y.toDouble(), SnapType.ENDPOINT, "頂點")
+                    }
+                    entity.vertices.zipWithNext().forEach { (v1, v2) ->
+                        val mx = (v1.x + v2.x) / 2.0; val my = (v1.y + v2.y) / 2.0
+                        val (em, nm) = dxfTransform.toWorld(mx, my)
+                        tryAdd(em, nm, mx, my, SnapType.MIDPOINT, "中點")
+                    }
+                }
+                is DxfEntity.Circle -> {
+                    val (ce, cn) = dxfTransform.toWorld(entity.cx, entity.cy)
+                    tryAdd(ce, cn, entity.cx, entity.cy, SnapType.CENTER, "圓心")
+                }
+                is DxfEntity.Arc -> {
+                    val (ce, cn) = dxfTransform.toWorld(entity.cx, entity.cy)
+                    tryAdd(ce, cn, entity.cx, entity.cy, SnapType.CENTER, "圓心")
+                    val sRad = Math.toRadians(entity.startDeg); val eRad = Math.toRadians(entity.endDeg)
+                    val sx1 = entity.cx + entity.radius * cos(sRad); val sy1 = entity.cy + entity.radius * sin(sRad)
+                    val ex1 = entity.cx + entity.radius * cos(eRad); val ey1 = entity.cy + entity.radius * sin(eRad)
+                    val (se, sn) = dxfTransform.toWorld(sx1, sy1); val (ee, en) = dxfTransform.toWorld(ex1, ey1)
+                    tryAdd(se, sn, sx1, sy1, SnapType.ENDPOINT, "弧端點")
+                    tryAdd(ee, en, ex1, ey1, SnapType.ENDPOINT, "弧端點")
+                }
+            }
+        }
+
+        // 直線交點（僅檢查鄰近直線，限制數量避免效能問題）
+        val nearLines = dxf.entities.filterIsInstance<DxfEntity.Line>().filter { line ->
+            val (e1, n1) = dxfTransform.toWorld(line.x1, line.y1)
+            val (e2, n2) = dxfTransform.toWorld(line.x2, line.y2)
+            ptSegDist(we, wn, e1, n1, e2, n2) < tol * 3
+        }.take(20)
+        for (i in nearLines.indices) {
+            for (j in i + 1 until nearLines.size) {
+                computeIntersect(nearLines[i], nearLines[j])?.let { (ix, iy) ->
+                    val (ie, ine) = dxfTransform.toWorld(ix, iy)
+                    tryAdd(ie, ine, ix, iy, SnapType.INTERSECTION, "交點")
+                }
+            }
+        }
+        return best
+    }
+
+    private fun computeIntersect(l1: DxfEntity.Line, l2: DxfEntity.Line): Pair<Double, Double>? {
+        val d1x = l1.x2 - l1.x1; val d1y = l1.y2 - l1.y1
+        val d2x = l2.x2 - l2.x1; val d2y = l2.y2 - l2.y1
+        val cross = d1x * d2y - d1y * d2x
+        if (abs(cross) < 1e-12) return null
+        val t = ((l2.x1 - l1.x1) * d2y - (l2.y1 - l1.y1) * d2x) / cross
+        val u = ((l2.x1 - l1.x1) * d1y - (l2.y1 - l1.y1) * d1x) / cross
+        if (t < 0.0 || t > 1.0 || u < 0.0 || u > 1.0) return null
+        return (l1.x1 + t * d1x) to (l1.y1 + t * d1y)
+    }
+
+    fun clearDxfHighlight() { highlightedEntity = null; highlightedSnapPt = null; invalidate() }
+
+    // ── 量測點位公開 API ──────────────────────────
+    fun addMeasurePoint(snap: DxfSnapPoint) { measurePoints.add(snap); invalidate() }
+    fun removeLastMeasurePoint() { if (measurePoints.isNotEmpty()) { measurePoints.removeLast(); invalidate() } }
+    fun clearMeasurePoints() { measurePoints.clear(); invalidate() }
+    fun getMeasurePoints(): List<DxfSnapPoint> = measurePoints.toList()
+
+    // ── 量測疊加繪圖 ─────────────────────────────
+    private fun drawMeasureOverlay(canvas: Canvas) {
+        val pts = measurePoints
+        if (pts.isEmpty()) return
+
+        val markerR = 8f / scaleFactor
+        measureLinePaint.strokeWidth    = 2f / scaleFactor
+        measureMarkerStrokePaint.strokeWidth = 1.5f / scaleFactor
+
+        // 多邊形填色（3點以上）
+        if (pts.size >= 3) {
+            val fillPath = Path()
+            pts.forEachIndexed { i, s ->
+                val p = worldToLocal(s.worldE, s.worldN)
+                if (i == 0) fillPath.moveTo(p.x, p.y) else fillPath.lineTo(p.x, p.y)
+            }
+            fillPath.close()
+            canvas.drawPath(fillPath, measureFillPaint)
+        }
+
+        // 連接線 + 距離標籤
+        for (i in 1 until pts.size) {
+            val s1 = pts[i - 1]; val s2 = pts[i]
+            val p1 = worldToLocal(s1.worldE, s1.worldN)
+            val p2 = worldToLocal(s2.worldE, s2.worldN)
+            canvas.drawLine(p1.x, p1.y, p2.x, p2.y, measureLinePaint)
+
+            // 距離標籤（mid-point）
+            val dist = sqrt((s2.worldE - s1.worldE) * (s2.worldE - s1.worldE) +
+                            (s2.worldN - s1.worldN) * (s2.worldN - s1.worldN))
+            val label = if (dist >= 1.0) String.format("%.3f m", dist)
+                        else String.format("%.1f mm", dist * 1000.0)
+            val mx = (p1.x + p2.x) / 2f; val my = (p1.y + p2.y) / 2f
+            canvas.save()
+            canvas.translate(mx, my)
+            canvas.scale(1f / scaleFactor, -1f / scaleFactor)
+            canvas.drawText(label, 0f, -6f, measureLabelPaint)
+            canvas.restore()
+        }
+
+        // 點位標記 + 序號
+        pts.forEachIndexed { i, snap ->
+            val p = worldToLocal(snap.worldE, snap.worldN)
+            canvas.drawCircle(p.x, p.y, markerR, measureMarkerFillPaint)
+            canvas.drawCircle(p.x, p.y, markerR, measureMarkerStrokePaint)
+            canvas.save()
+            canvas.translate(p.x, p.y)
+            canvas.scale(1f / scaleFactor, -1f / scaleFactor)
+            canvas.drawText("${i + 1}", 0f, measureTextPaint.textSize * 0.35f, measureTextPaint)
+            canvas.restore()
+        }
+    }
+
+    // ── 相對位置疊加繪圖 ─────────────────────────
+    private fun drawRelativeOverlay(canvas: Canvas) {
+        val a = relativePointA ?: return
+        val r = 10f / scaleFactor
+        relativeLinePaint.strokeWidth = 2f / scaleFactor
+        relativeLinePaint.pathEffect  = DashPathEffect(floatArrayOf(8f / scaleFactor, 5f / scaleFactor), 0f)
+
+        val pa = worldToLocal(a.worldE, a.worldN)
+        // 點 A 標記（紫色，帶 "A" 文字）
+        canvas.drawCircle(pa.x, pa.y, r, relativeMarkerPaint)
+        canvas.save(); canvas.translate(pa.x, pa.y)
+        canvas.scale(1f / scaleFactor, -1f / scaleFactor)
+        canvas.drawText("A", 0f, measureTextPaint.textSize * 0.35f, measureTextPaint)
+        canvas.restore()
+
+        relativePointB?.let { b ->
+            val pb = worldToLocal(b.worldE, b.worldN)
+            // 繪製 A-B 連線
+            canvas.drawLine(pa.x, pa.y, pb.x, pb.y, relativeLinePaint)
+            
+            // 點 B 標記
+            canvas.drawCircle(pb.x, pb.y, r, relativeMarkerPaint)
+            canvas.save(); canvas.translate(pb.x, pb.y)
+            canvas.scale(1f / scaleFactor, -1f / scaleFactor)
+            canvas.drawText("B", 0f, measureTextPaint.textSize * 0.35f, measureTextPaint)
+            canvas.restore()
+        }
     }
 
     // ── 3D 等角繪製 ──────────────────────────────

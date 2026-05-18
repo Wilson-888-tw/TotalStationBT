@@ -36,6 +36,54 @@
             android:checkable="true"
             android:checked="false"
             app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_load_dxf"
+            android:title="載入底圖 (.dxf)"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_clear_dxf"
+            android:title="清除底圖"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_dxf_query"
+            android:title="DXF 查詢（點選圖元）"
+            android:checkable="true"
+            android:checked="false"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_dxf_snap"
+            android:title="DXF 捕捉點（端點/交點/圓心）"
+            android:checkable="true"
+            android:checked="false"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_dxf_measure"
+            android:title="DXF 量測（連續捕捉計算）"
+            android:checkable="true"
+            android:checked="false"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_dxf_measure_result"
+            android:title="顯示量測結果"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_dxf_measure_undo"
+            android:title="刪除最後一個量測點"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_dxf_measure_clear"
+            android:title="清除所有量測點"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_dxf_relative"
+            android:title="DXF 相對位置（兩點計算）"
+            android:checkable="true"
+            android:checked="false"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_dxf_relative_clear"
+            android:title="清除相對位置基準點"
+            app:showAsAction="never" />
     </group>
 
 </menu>

@@ -38,6 +38,9 @@ interface SurveyDao {
     @Update
     suspend fun updatePoint(point: PointEntity): Int
 
-    @Query("UPDATE points SET note = :note WHERE id = :id")
-    suspend fun updatePointNote(id: Long, note: String): Int
+    @Query("UPDATE points SET note = :note WHERE id = :pointId")
+    suspend fun updatePointNote(pointId: Long, note: String): Int
+
+    @Query("UPDATE points SET code = :code WHERE id = :pointId")
+    suspend fun updatePointCode(pointId: Long, code: String): Int
 }
