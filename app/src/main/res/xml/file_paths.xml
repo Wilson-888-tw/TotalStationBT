@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 內部儲存 -->
+    <files-path name="internal_files" path="exports/" />
+    <!-- 外部 Documents -->
+    <external-path name="external_docs" path="TotalStationBT/" />
+    <!-- 外部 App 專屬目錄 (Android/data/...) -->
+    <external-files-path name="my_images" path="Pictures" />
+    <!-- 公共 Download 目錄 -->
+    <external-path name="external_downloads" path="Download/TotalStationBT" />
+</paths>

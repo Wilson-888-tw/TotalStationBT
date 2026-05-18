@@ -1,0 +1,94 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!--
+        全站儀 (Total Station) 圖示 — 白色線條風格
+        安全區：(18,18)→(90,90)，儀器中心 (46,40)
+    -->
+
+    <!-- 望遠鏡鏡管（水平膠囊形） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 26,31 L 62,31 Q 66,31 66,36 Q 66,41 62,41 L 26,41 Q 22,41 22,36 Q 22,31 26,31 Z"/>
+
+    <!-- 目鏡端護蓋（左側小方塊） -->
+    <path
+        android:fillColor="#9ECAFF"
+        android:pathData="M 18,33.5 L 22,33.5 L 22,38.5 L 18,38.5 Z"/>
+
+    <!-- 十字絲（刻在鏡管上，深色） -->
+    <path
+        android:strokeColor="#111318"
+        android:strokeWidth="1.5"
+        android:pathData="M 40,31 L 40,41 M 30,36 L 54,36"/>
+
+    <!-- 垂直轉軸（鏡管下方連接底座） -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M 44,41 L 44,58"/>
+
+    <!-- 水平底座橫桿 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:pathData="M 34,58 L 54,58"/>
+
+    <!-- 三腳架 — 左腳 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M 38,58 L 22,82"/>
+
+    <!-- 三腳架 — 右腳 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M 50,58 L 66,82"/>
+
+    <!-- 三腳架 — 中腳 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M 44,58 L 44,82"/>
+
+    <!-- 三腳架底部橫桿 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M 17,82 L 71,82"/>
+
+    <!-- 信號弧 1（小，緊靠鏡頭） -->
+    <path
+        android:strokeColor="#80CBBC"
+        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M 69,33 A 3,3 0 0,1 69,39"/>
+
+    <!-- 信號弧 2（中） -->
+    <path
+        android:strokeColor="#80CBBC"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M 74,29 A 8,8 0 0,1 74,43"/>
+
+    <!-- 信號弧 3（大） -->
+    <path
+        android:strokeColor="#80CBBC"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M 80,24 A 13,13 0 0,1 80,48"/>
+
+</vector>

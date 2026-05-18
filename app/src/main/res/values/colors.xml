@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ── M3 Primary (Blue) ─────────────────────── -->
+    <color name="md3_primary">#9ECAFF</color>
+    <color name="md3_on_primary">#003258</color>
+    <color name="md3_primary_container">#00487D</color>
+    <color name="md3_on_primary_container">#D1E4FF</color>
+
+    <!-- ── M3 Secondary (Teal) ───────────────────── -->
+    <color name="md3_secondary">#80CBBC</color>
+    <color name="md3_on_secondary">#003730</color>
+    <color name="md3_secondary_container">#005047</color>
+    <color name="md3_on_secondary_container">#9CF1E1</color>
+
+    <!-- ── M3 Surface / Background ──────────────── -->
+    <color name="md3_surface">#111318</color>
+    <color name="md3_surface_dim">#111318</color>
+    <color name="md3_surface_container_lowest">#0C0E13</color>
+    <color name="md3_surface_container">#1E2128</color>
+    <color name="md3_surface_container_high">#262B33</color>
+    <color name="md3_surface_container_highest">#313540</color>
+    <color name="md3_on_surface">#E2E2E9</color>
+    <color name="md3_on_surface_variant">#C2C7CF</color>
+
+    <!-- ── M3 Outline ────────────────────────────── -->
+    <color name="md3_outline">#8C9198</color>
+    <color name="md3_outline_variant">#43474E</color>
+
+    <!-- ── M3 Error ──────────────────────────────── -->
+    <color name="md3_error">#FFB4AB</color>
+    <color name="md3_on_error">#690005</color>
+    <color name="md3_error_container">#93000A</color>
+    <color name="md3_on_error_container">#FFDAD6</color>
+
+    <!-- ── 語意色（代碼中使用）────────────────────── -->
+    <color name="color_primary">#9ECAFF</color>
+    <color name="color_primary_dark">#00487D</color>
+    <color name="color_accent">#80CBBC</color>
+    <color name="white">#FFFFFF</color>
+
+    <!-- ── 背景 ───────────────────────────────────── -->
+    <color name="bg_primary">#111318</color>
+    <color name="bg_secondary">#1E2128</color>
+    <color name="bg_card">#262B33</color>
+
+    <!-- ── 文字 ───────────────────────────────────── -->
+    <color name="text_primary">#E2E2E9</color>
+    <color name="text_secondary">#C2C7CF</color>
+    <color name="text_hint">#8C9198</color>
+
+    <!-- ── 狀態色 ─────────────────────────────────── -->
+    <color name="status_connected">#69F0AE</color>
+    <color name="status_connecting">#FFD54F</color>
+    <color name="status_disconnected">#90A4AE</color>
+    <color name="status_error">#FFB4AB</color>
+
+    <!-- ── 分隔線 ─────────────────────────────────── -->
+    <color name="divider">#2E3340</color>
+
+    <!-- ── Launcher ──────────────────────────────── -->
+    <color name="ic_launcher_background">#0D1B3E</color>
+</resources>

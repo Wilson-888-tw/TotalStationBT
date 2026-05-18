@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <!-- 工具列常駐按鈕 -->
+    <group android:id="@+id/group_map_actions">
+        <item
+            android:id="@+id/menu_zoom_fit"
+            android:title="縮放至全視窗"
+            android:icon="@drawable/ic_zoom_out_map"
+            app:showAsAction="always" />
+        <item
+            android:id="@+id/menu_points"
+            android:title="點位清單"
+            android:icon="@drawable/ic_bluetooth_search"
+            app:showAsAction="always" />
+    </group>
+
+    <!-- 溢出選單 -->
+    <group android:id="@+id/group_map_options">
+        <item
+            android:id="@+id/menu_show_lines"
+            android:title="顯示原始連線"
+            android:checkable="true"
+            android:checked="true"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_elevation_color"
+            android:title="海拔高程色帶"
+            android:checkable="true"
+            android:checked="false"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_toggle_3d"
+            android:title="切換 3D 視圖"
+            android:checkable="true"
+            android:checked="false"
+            app:showAsAction="never" />
+    </group>
+
+</menu>

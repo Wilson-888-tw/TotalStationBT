@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/md3_surface_container_high">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="24dp"
+        android:paddingBottom="16dp">
+
+        <!-- App 標題區 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="20dp">
+
+            <ImageView
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@mipmap/ic_launcher"
+                android:contentDescription="App icon" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="全站儀 BT 接收器"
+                    android:textColor="@color/md3_on_surface"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvAboutVersion"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="v1.0.0"
+                    android:textColor="@color/text_hint"
+                    android:textSize="12sp"
+                    android:layout_marginTop="2dp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- 功能說明 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="@color/md3_surface_container"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="功能介紹"
+                    android:textColor="@color/md3_secondary"
+                    android:textSize="12sp"
+                    android:textAllCaps="true"
+                    android:letterSpacing="0.1"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="• 藍牙接收全站儀 NIKON RAW / SDR 格式資料\n• 自動解析 E / N / Z 座標與施測編碼\n• 即時 2D 平面圖 ＆ 3D 立體圖顯示\n• 放樣導引（距離＋填挖量提示）\n• 匯出 CSV 以供 Excel / AutoCAD 使用"
+                    android:textColor="@color/md3_on_surface"
+                    android:textSize="13sp"
+                    android:lineSpacingExtra="3dp" />
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 資料格式 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="@color/md3_surface_container"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="支援格式"
+                    android:textColor="@color/md3_secondary"
+                    android:textSize="12sp"
+                    android:textAllCaps="true"
+                    android:letterSpacing="0.1"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="NIKON RAW — 單行格式\n  PN,E,N,Z,CODE 或 TYPE,PN,E,N,Z,CODE\n\nSDR33 — 序號 08 為觀測點，序號 09 為後視"
+                    android:textColor="@color/md3_on_surface"
+                    android:textSize="13sp"
+                    android:fontFamily="monospace"
+                    android:lineSpacingExtra="3dp" />
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 操作提示 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="@color/md3_surface_container"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="操作手勢"
+                    android:textColor="@color/md3_secondary"
+                    android:textSize="12sp"
+                    android:textAllCaps="true"
+                    android:letterSpacing="0.1"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="雙指縮放 — 放大 / 縮小地圖\n單指拖曳 — 2D 平移 ／ 3D 旋轉視角\n長按點位 — 啟動放樣導引\n點選點位 — 顯示詳細座標"
+                    android:textColor="@color/md3_on_surface"
+                    android:textSize="13sp"
+                    android:lineSpacingExtra="3dp" />
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 手機端連線流程 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="@color/md3_surface_container"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="手機端連線流程"
+                    android:textColor="@color/md3_secondary"
+                    android:textSize="12sp"
+                    android:textAllCaps="true"
+                    android:letterSpacing="0.1"
+                    android:layout_marginBottom="10dp" />
+
+                <!-- 步驟列 -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="1" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:text="開啟 App" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </LinearLayout>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="12dp" android:text="↓" android:textColor="@color/text_hint" android:textSize="12sp" android:layout_marginStart="8dp" android:layout_marginBottom="2dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="4dp">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="2" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="系統設定 → 藍牙 → 掃描 → 找到 Nivo 2M+" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="配對碼通常是 0000 或 1234" android:textColor="@color/text_hint" android:textSize="11sp" android:layout_marginTop="1dp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="12dp" android:text="↓" android:textColor="@color/text_hint" android:textSize="12sp" android:layout_marginStart="8dp" android:layout_marginBottom="2dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="3" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:text="回到 App → 點右上角藍牙圖示" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </LinearLayout>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="12dp" android:text="↓" android:textColor="@color/text_hint" android:textSize="12sp" android:layout_marginStart="8dp" android:layout_marginBottom="2dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="4" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:text="選擇已配對的 Nivo 2M+" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </LinearLayout>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="12dp" android:text="↓" android:textColor="@color/text_hint" android:textSize="12sp" android:layout_marginStart="8dp" android:layout_marginBottom="2dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="5" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:text="狀態列變綠色「已連線」" android:textColor="@color/status_connected" android:textSize="13sp" android:textStyle="bold" />
+                </LinearLayout>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="12dp" android:text="↓" android:textColor="@color/text_hint" android:textSize="12sp" android:layout_marginStart="8dp" android:layout_marginBottom="2dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="6" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:text="在全站儀按 REC → App 即時顯示資料" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 現場作業流程 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="@color/md3_surface_container"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="實際現場作業流程"
+                    android:textColor="@color/md3_secondary"
+                    android:textSize="12sp"
+                    android:textAllCaps="true"
+                    android:letterSpacing="0.1"
+                    android:layout_marginBottom="10dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="1" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:text="架設儀器、輸入測站坐標" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </LinearLayout>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="12dp" android:text="↓" android:textColor="@color/text_hint" android:textSize="12sp" android:layout_marginStart="8dp" android:layout_marginBottom="2dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="2" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:text="瞄準目標（稜鏡或免稜鏡）" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </LinearLayout>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="12dp" android:text="↓" android:textColor="@color/text_hint" android:textSize="12sp" android:layout_marginStart="8dp" android:layout_marginBottom="2dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="3" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:text="按全站儀 MEAS（量測）" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </LinearLayout>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="12dp" android:text="↓" android:textColor="@color/text_hint" android:textSize="12sp" android:layout_marginStart="8dp" android:layout_marginBottom="2dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="4" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:text="按 REC（記錄 / 傳送）" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </LinearLayout>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="12dp" android:text="↓" android:textColor="@color/text_hint" android:textSize="12sp" android:layout_marginStart="8dp" android:layout_marginBottom="2dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="6dp">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="5" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="手機 App 立即收到該點資料" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="綠色 = 解析成功，顯示點號 + 坐標" android:textColor="@color/status_connected" android:textSize="11sp" android:layout_marginTop="1dp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="12dp" android:text="↓" android:textColor="@color/text_hint" android:textSize="12sp" android:layout_marginStart="8dp" android:layout_marginBottom="2dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="28dp" android:layout_height="28dp" android:text="6" android:textColor="@color/md3_on_secondary_container" android:textSize="12sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/step_circle" />
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:text="繼續下一個點" android:textColor="@color/md3_on_surface" android:textSize="13sp" />
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 版權 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="© 2025 Survey Tools  •  MIT License"
+            android:textColor="@color/text_hint"
+            android:textSize="11sp"
+            android:gravity="center"
+            android:layout_marginTop="4dp" />
+
+    </LinearLayout>
+
+</ScrollView>
