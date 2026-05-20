@@ -15,6 +15,10 @@ class SurveyRepository(private val surveyDao: SurveyDao) {
         return surveyDao.getProjectById(projectId)
     }
 
+    suspend fun updateProject(project: ProjectEntity) {
+        surveyDao.updateProject(project)
+    }
+
     suspend fun deleteProject(project: ProjectEntity) {
         surveyDao.deleteProject(project)
     }

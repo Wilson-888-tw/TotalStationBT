@@ -31,15 +31,16 @@ object StakeoutCalculator {
         val dZ = zT - zC
         
         val dist = sqrt(dN.pow(2) + dE.pow(2))
-        val azimuth = Math.toDegrees(atan2(dE, dN))
-        
+        val rawAzimuth = Math.toDegrees(atan2(dE, dN))
+        val normalizedAzimuth = if (rawAzimuth < 0) rawAzimuth + 360 else rawAzimuth
+
         return Guidance(
             deltaN = dN,
             deltaE = dE,
             deltaZ = dZ,
             distance2D = dist,
-            azimuth = if (azimuth < 0) azimuth + 360 else azimuth,
-            directionArrow = azimuth.toFloat()
+            azimuth = normalizedAzimuth,
+            directionArrow = normalizedAzimuth.toFloat()
         )
     }
 

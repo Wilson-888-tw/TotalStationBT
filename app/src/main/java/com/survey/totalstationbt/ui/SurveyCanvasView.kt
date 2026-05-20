@@ -14,6 +14,7 @@ import com.survey.totalstationbt.model.DxfEntity
 import com.survey.totalstationbt.model.DxfSnapPoint
 import com.survey.totalstationbt.model.DxfTapMode
 import com.survey.totalstationbt.model.DxfTransform
+import com.survey.totalstationbt.model.BaselineAnchor
 import com.survey.totalstationbt.model.SnapType
 import com.survey.totalstationbt.utils.SurveyMathUtils
 import kotlin.math.abs
@@ -32,13 +33,37 @@ class SurveyCanvasView @JvmOverloads constructor(
     private val visiblePointIds = mutableSetOf<Long>()
     private var showOriginalLines = true
     private var elevationBasePoint: PointEntity? = null
-    private var baselinePoints: Pair<PointEntity, PointEntity>? = null
+    private var baselineA1: BaselineAnchor? = null
+    private var baselineA2: BaselineAnchor? = null
+    private var stakeoutTargetId: Long? = null
+    private var currentStakeoutTarget: PointEntity? = null
 
     // ── DXF 底圖 ──────────────────────────────────
     private var dxfData: DxfData? = null
     private var dxfTransform = DxfTransform.IDENTITY
     var showDxf = true
         set(value) { field = value; invalidate() }
+    
+    var dxfAlpha = 200 // 0-255
+        set(value) {
+            field = value.coerceIn(0, 255)
+            dxfPaint.alpha = field
+            invalidate()
+        }
+    
+    // DXF 圖層管理
+    val visibleLayers = mutableSetOf<String>()
+    fun setVisibleLayers(layers: Set<String>) {
+        visibleLayers.clear()
+        visibleLayers.addAll(layers)
+        invalidate()
+    }
+
+    // 測量記錄回放 (軌跡)
+    var showPlayback = false
+        set(value) { field = value; invalidate() }
+    var playbackProgress = 1.0f // 0.0 to 1.0
+        set(value) { field = value.coerceIn(0f, 1f); invalidate() }
 
     // 海拔色帶模式
     var elevationColorMode = false
@@ -75,6 +100,7 @@ class SurveyCanvasView @JvmOverloads constructor(
         set(v) { field = v; highlightedEntity = null; highlightedSnapPt = null; invalidate() }
     private var highlightedEntity: DxfEntity? = null
     private var highlightedSnapPt: DxfSnapPoint? = null
+    private val selectedSnapPoints = mutableListOf<DxfSnapPoint>()
     var onDxfEntityTapped: ((DxfEntity) -> Unit)? = null
     var onDxfSnapPicked: ((DxfSnapPoint) -> Unit)? = null
 
@@ -102,7 +128,22 @@ class SurveyCanvasView @JvmOverloads constructor(
     }
 
     fun setBaseline(p1: PointEntity?, p2: PointEntity?) {
-        this.baselinePoints = if (p1 != null && p2 != null) Pair(p1, p2) else null
+        baselineA1 = p1?.let { BaselineAnchor.from(it) }
+        baselineA2 = p2?.let { BaselineAnchor.from(it) }
+        invalidate()
+    }
+
+    fun setBaseline(a1: BaselineAnchor?, a2: BaselineAnchor?) {
+        baselineA1 = a1
+        baselineA2 = a2
+        invalidate()
+    }
+
+    fun getBaselineAnchors(): Pair<BaselineAnchor?, BaselineAnchor?> = Pair(baselineA1, baselineA2)
+
+    fun setStakeoutTarget(pt: PointEntity?) {
+        currentStakeoutTarget = pt
+        stakeoutTargetId = pt?.id?.takeIf { it != 0L }
         invalidate()
     }
 
@@ -144,6 +185,12 @@ class SurveyCanvasView @JvmOverloads constructor(
     }
     private val notePaint = Paint().apply {
         color = Color.rgb(255, 200, 0); style = Paint.Style.FILL; isAntiAlias = true
+    }
+    private val stakeoutPaint = Paint().apply {
+        color = Color.rgb(255, 80, 0); strokeCap = Paint.Cap.ROUND; isAntiAlias = true
+    }
+    private val stakeoutRingPaint = Paint().apply {
+        color = Color.rgb(255, 80, 0); style = Paint.Style.STROKE; isAntiAlias = true
     }
 
     // 3D 軸線
@@ -231,6 +278,18 @@ class SurveyCanvasView @JvmOverloads constructor(
     }
     private val northBgPaint = Paint().apply {
         color = Color.argb(140, 0, 0, 0); style = Paint.Style.FILL
+    }
+
+    // 軌跡回放筆
+    private val playbackTrailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(180, 255, 255, 0) // 黃色半透明
+        strokeWidth = 4f
+        style = Paint.Style.STROKE
+        strokeJoin = Paint.Join.ROUND
+        pathEffect = DashPathEffect(floatArrayOf(15f, 10f), 0f)
+    }
+    private val playbackPointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.YELLOW; style = Paint.Style.FILL
     }
 
     // ── View transforms ──────────────────────────
@@ -412,6 +471,11 @@ class SurveyCanvasView @JvmOverloads constructor(
     fun setDxf(data: DxfData?, transform: DxfTransform = DxfTransform.IDENTITY) {
         dxfData = data
         dxfTransform = transform
+        // 預設開啟所有圖元所屬圖層
+        data?.entities?.map { it.layer }?.distinct()?.let {
+            visibleLayers.clear()
+            visibleLayers.addAll(it)
+        }
         calculateBounds()
         invalidate()
     }
@@ -468,6 +532,19 @@ class SurveyCanvasView @JvmOverloads constructor(
         scaleFactor = min(scaleE, scaleN)
         translateX = viewW / 2f - (rangeE / 2.0).toFloat() * scaleFactor
         translateY = viewH / 2f + (rangeN / 2.0).toFloat() * scaleFactor
+        invalidate()
+    }
+
+    /** 將視角中心對準特定點位 */
+    fun centerOnPoint(pt: PointEntity) {
+        val e = pt.easting ?: return
+        val n = pt.northing ?: return
+        val viewW = width.toFloat(); val viewH = height.toFloat()
+        if (viewW == 0f || viewH == 0f) return
+        
+        // 保持目前縮放，僅平移
+        translateX = viewW / 2f - (e - minE).toFloat() * scaleFactor
+        translateY = viewH / 2f + (n - minN).toFloat() * scaleFactor
         invalidate()
     }
 
@@ -582,7 +659,7 @@ class SurveyCanvasView @JvmOverloads constructor(
     // ── onDraw 分派 ───────────────────────────────
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (points.isEmpty()) return
+        if (points.isEmpty() && dxfData == null) return
         if (is3DMode) draw3D(canvas) else draw2D(canvas)
         drawScaleBar(canvas)
         drawNorthArrow(canvas)
@@ -629,14 +706,24 @@ class SurveyCanvasView @JvmOverloads constructor(
         }
 
         // 基準線
-        baselinePoints?.let { (p1, p2) ->
+        val b1 = baselineA1
+        val b2 = baselineA2
+        if (b1 != null || b2 != null) {
             baselinePaint.strokeWidth = 3f / scaleFactor
-            canvas.drawLine(
-                ((p1.easting  ?: 0.0) - minE).toFloat(), ((p1.northing ?: 0.0) - minN).toFloat(),
-                ((p2.easting  ?: 0.0) - minE).toFloat(), ((p2.northing ?: 0.0) - minN).toFloat(),
-                baselinePaint
-            )
+            if (b1 != null && b2 != null) {
+                canvas.drawLine(
+                    (b1.easting - minE).toFloat(), (b1.northing - minN).toFloat(),
+                    (b2.easting - minE).toFloat(), (b2.northing - minN).toFloat(),
+                    baselinePaint
+                )
+            }
+            // 繪製基準線錨點標記
+            b1?.let { drawBaselineAnchor(canvas, it, "P1") }
+            b2?.let { drawBaselineAnchor(canvas, it, "P2") }
         }
+
+        // 軌跡回放 (在點位下方)
+        if (showPlayback) drawPlaybackTrail(canvas)
 
         // 點位
         points.forEach { pt ->
@@ -644,12 +731,19 @@ class SurveyCanvasView @JvmOverloads constructor(
             val e = ((pt.easting  ?: 0.0) - minE).toFloat()
             val n = ((pt.northing ?: 0.0) - minN).toFloat()
 
+            val isStakeoutTarget = pt.id != 0L && pt.id == stakeoutTargetId
             val paint = when {
                 selectedPoints.contains(pt) -> selectionPaint
+                isStakeoutTarget -> stakeoutPaint.also { it.strokeWidth = strokeWidth }
                 elevationColorMode -> pointPaint.also { it.color = elevationToColor(pt.elevation ?: minZ) }
                 else -> pointPaint.also { it.color = Color.CYAN }
             }
-            drawPointSymbol(canvas, e, n, pt.code, paint, pointRadius)
+            val radius = if (isStakeoutTarget) pointRadius * 1.6f else pointRadius
+            drawPointSymbol(canvas, e, n, pt.code, paint, radius)
+            if (isStakeoutTarget) {
+                stakeoutRingPaint.strokeWidth = 2f / scaleFactor
+                canvas.drawCircle(e, n, radius * 2.2f, stakeoutRingPaint)
+            }
 
             canvas.save()
             canvas.translate(e, n)
@@ -661,10 +755,34 @@ class SurveyCanvasView @JvmOverloads constructor(
             canvas.restore()
         }
 
+        // 單獨處理不在 points 清單中的放樣目標 (例如 DXF 捕捉點)
+        currentStakeoutTarget?.let { target ->
+            if (target.id != 0L && visiblePointIds.contains(target.id)) return@let
+            
+            val e = ((target.easting ?: 0.0) - minE).toFloat()
+            val n = ((target.northing ?: 0.0) - minN).toFloat()
+            
+            stakeoutPaint.strokeWidth = strokeWidth
+            val radius = pointRadius * 1.6f
+            drawPointSymbol(canvas, e, n, target.code, stakeoutPaint, radius)
+            
+            stakeoutRingPaint.strokeWidth = 2f / scaleFactor
+            canvas.drawCircle(e, n, radius * 2.2f, stakeoutRingPaint)
+
+            canvas.save()
+            canvas.translate(e, n)
+            canvas.scale(1f / scaleFactor, -1f / scaleFactor)
+            canvas.drawText(target.pointName, 15f, -15f, textPaint)
+            canvas.restore()
+        }
+
         // 量測疊加層
         if (measurePoints.isNotEmpty()) drawMeasureOverlay(canvas)
         // 相對位置疊加層
         if (relativePointA != null) drawRelativeOverlay(canvas)
+
+        // 繪製捕捉點高亮 (Snap Feedback)
+        drawSnapHighlight(canvas)
 
         canvas.restore()
     }
@@ -683,60 +801,19 @@ class SurveyCanvasView @JvmOverloads constructor(
         dxfPaint.strokeWidth = 1.5f / scaleFactor
 
         dxf.entities.forEach { entity ->
-            when (entity) {
-                is DxfEntity.Line -> {
-                    val p1 = dxfToLocal(entity.x1, entity.y1)
-                    val p2 = dxfToLocal(entity.x2, entity.y2)
-                    canvas.drawLine(p1.x, p1.y, p2.x, p2.y, dxfPaint)
-                }
-                is DxfEntity.Polyline -> {
-                    if (entity.vertices.isEmpty()) return@forEach
-                    val path = Path()
-                    entity.vertices.forEachIndexed { idx, v ->
-                        val p = dxfToLocal(v.x.toDouble(), v.y.toDouble())
-                        if (idx == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
-                    }
-                    if (entity.closed) path.close()
-                    canvas.drawPath(path, dxfPaint)
-                }
-                is DxfEntity.Circle -> {
-                    val c = dxfToLocal(entity.cx, entity.cy)
-                    val r = (entity.radius * dxfTransform.scale).toFloat()
-                    canvas.drawCircle(c.x, c.y, r, dxfPaint)
-                }
-                is DxfEntity.Arc -> {
-                    val path = Path()
-                    var startDeg = entity.startDeg; var endDeg = entity.endDeg
-                    if (endDeg <= startDeg) endDeg += 360.0
-                    val steps = 48; val step = (endDeg - startDeg) / steps
-                    for (s in 0..steps) {
-                        val ar = Math.toRadians(startDeg + s * step)
-                        val p = dxfToLocal(entity.cx + entity.radius * cos(ar), entity.cy + entity.radius * sin(ar))
-                        if (s == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
-                    }
-                    canvas.drawPath(path, dxfPaint)
-                }
+            if (visibleLayers.contains(entity.layer)) {
+                drawSingleDxfEntity(canvas, entity, dxfPaint, dxf.blocks)
             }
         }
 
-        // 高亮選中圖元（與 DXF 線同比例，略粗以示區別）
+        // 高亮選中圖元
         highlightedEntity?.let { entity ->
             dxfHighlightPaint.strokeWidth = 2.5f / scaleFactor
-            drawDxfEntityPath(canvas, entity, dxfHighlightPaint)
-        }
-
-        // 捕捉點標記（十字 + 圓圈）
-        highlightedSnapPt?.let { snap ->
-            val p = worldToLocal(snap.worldE, snap.worldN)
-            val sz = 20f / scaleFactor
-            dxfSnapPaint.strokeWidth = 2f / scaleFactor
-            canvas.drawLine(p.x - sz, p.y, p.x + sz, p.y, dxfSnapPaint)
-            canvas.drawLine(p.x, p.y - sz, p.x, p.y + sz, dxfSnapPaint)
-            canvas.drawCircle(p.x, p.y, sz * 0.7f, dxfSnapPaint)
+            drawSingleDxfEntity(canvas, entity, dxfHighlightPaint, dxf.blocks)
         }
     }
 
-    private fun drawDxfEntityPath(canvas: Canvas, entity: DxfEntity, paint: Paint) {
+    private fun drawSingleDxfEntity(canvas: Canvas, entity: DxfEntity, paint: Paint, blocks: Map<String, List<DxfEntity>>) {
         when (entity) {
             is DxfEntity.Line -> {
                 val p1 = dxfToLocal(entity.x1, entity.y1)
@@ -770,7 +847,95 @@ class SurveyCanvasView @JvmOverloads constructor(
                 }
                 canvas.drawPath(path, paint)
             }
+            is DxfEntity.Point -> {
+                val p = dxfToLocal(entity.x, entity.y)
+                canvas.drawPoint(p.x, p.y, paint)
+            }
+            is DxfEntity.Text -> {
+                val p = dxfToLocal(entity.x, entity.y)
+                canvas.save()
+                canvas.translate(p.x, p.y)
+                canvas.scale(1f / scaleFactor, -1f / scaleFactor)
+                val oldSize = textPaint.textSize
+                val oldColor = textPaint.color
+                textPaint.textSize = (entity.height * dxfTransform.scale * scaleFactor).toFloat()
+                textPaint.color = paint.color
+                canvas.rotate((-entity.rotation).toFloat())
+                canvas.drawText(entity.text, 0f, 0f, textPaint)
+                textPaint.textSize = oldSize
+                textPaint.color = oldColor
+                canvas.restore()
+            }
+            is DxfEntity.Ellipse -> {
+                val path = Path()
+                val steps = 64
+                for (s in 0..steps) {
+                    val t = (2 * Math.PI * s) / steps
+                    val ex = entity.cx + entity.mx * cos(t) - (entity.my * entity.ratio) * sin(t)
+                    val ey = entity.cy + entity.my * cos(t) + (entity.mx * entity.ratio) * sin(t)
+                    val p = dxfToLocal(ex, ey)
+                    if (s == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+                }
+                canvas.drawPath(path, paint)
+            }
+            is DxfEntity.Insert -> {
+                val block = blocks[entity.blockName] ?: return
+                canvas.save()
+                val p = dxfToLocal(entity.x, entity.y)
+                canvas.translate(p.x, p.y)
+                canvas.scale(entity.scaleX.toFloat(), entity.scaleY.toFloat())
+                canvas.rotate(entity.rotation.toFloat())
+                block.forEach { drawSingleDxfEntity(canvas, it, paint, blocks) }
+                canvas.restore()
+            }
+            is DxfEntity.Spline -> {
+                if (entity.controlPoints.isEmpty()) return
+                val path = Path()
+                entity.controlPoints.forEachIndexed { idx, v ->
+                    val p = dxfToLocal(v.x.toDouble(), v.y.toDouble())
+                    if (idx == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+                }
+                canvas.drawPath(path, paint)
+            }
+            is DxfEntity.Dimension -> {
+                val p1 = dxfToLocal(entity.x1, entity.y1)
+                val p2 = dxfToLocal(entity.x2, entity.y2)
+                canvas.drawLine(p1.x, p1.y, p2.x, p2.y, paint)
+                if (entity.text.isNotEmpty()) {
+                    val mx = (p1.x + p2.x) / 2f; val my = (p1.y + p2.y) / 2f
+                    canvas.save()
+                    canvas.translate(mx, my)
+                    canvas.scale(1f / scaleFactor, -1f / scaleFactor)
+                    canvas.drawText(entity.text, 0f, 0f, textPaint)
+                    canvas.restore()
+                }
+            }
+            is DxfEntity.Hatch -> {
+                entity.loops.forEach { loop ->
+                    if (loop.isEmpty()) return@forEach
+                    val path = Path()
+                    loop.forEachIndexed { idx, v ->
+                        val p = dxfToLocal(v.x.toDouble(), v.y.toDouble())
+                        if (idx == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+                    }
+                    path.close()
+                    canvas.drawPath(path, paint)
+                }
+            }
+            is DxfEntity.Leader -> {
+                if (entity.vertices.isEmpty()) return
+                val path = Path()
+                entity.vertices.forEachIndexed { idx, v ->
+                    val p = dxfToLocal(v.x.toDouble(), v.y.toDouble())
+                    if (idx == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+                }
+                canvas.drawPath(path, paint)
+            }
         }
+    }
+
+    private fun drawDxfEntityPath(canvas: Canvas, entity: DxfEntity, paint: Paint) {
+        drawSingleDxfEntity(canvas, entity, paint, dxfData?.blocks ?: emptyMap())
     }
 
     // ── DXF 點選 / 捕捉 ──────────────────────────
@@ -783,41 +948,71 @@ class SurveyCanvasView @JvmOverloads constructor(
     private fun hitTestDxf(sx: Float, sy: Float): DxfEntity? {
         val dxf = dxfData ?: return null
         val (we, wn) = screenToWorld(sx, sy)
-        val tol = 20.0 / scaleFactor
+        val tol = 40.0 / scaleFactor // 增加容許誤差至 40px
         var bestDist = tol; var best: DxfEntity? = null
-        dxf.entities.forEach { entity ->
-            val d = distToEntity(entity, we, wn)
-            if (d < bestDist) { bestDist = d; best = entity }
+
+        fun checkEntities(entities: List<DxfEntity>, currentTransform: DxfTransform) {
+            entities.forEach { entity ->
+                if (!visibleLayers.contains(entity.layer)) return@forEach
+                
+                if (entity is DxfEntity.Insert) {
+                    val blockEntities = dxf.blocks[entity.blockName] ?: return@forEach
+                    // 組合變換：先應用 Insert 的平移、縮放、旋轉，再應用目前的變換
+                    // 這裡簡化處理，僅考慮 Insert 的平移，後續可擴充完整的 Matrix 運算
+                    val (ie, inN) = currentTransform.toWorld(entity.x, entity.y)
+                    val blockTransform = DxfTransform(
+                        ie, inN, 
+                        currentTransform.scale * entity.scaleX, // 簡化：假設 X,Y 縮放一致
+                        currentTransform.rotationRad + Math.toRadians(entity.rotation)
+                    )
+                    checkEntities(blockEntities, blockTransform)
+                } else {
+                    val d = distToEntity(entity, we, wn, currentTransform)
+                    if (d < bestDist) { bestDist = d; best = entity }
+                }
+            }
         }
+
+        checkEntities(dxf.entities, dxfTransform)
         return best
     }
 
-    private fun distToEntity(entity: DxfEntity, we: Double, wn: Double): Double = when (entity) {
+    private fun distToEntity(entity: DxfEntity, we: Double, wn: Double, transform: DxfTransform): Double = when (entity) {
         is DxfEntity.Line -> {
-            val (e1, n1) = dxfTransform.toWorld(entity.x1, entity.y1)
-            val (e2, n2) = dxfTransform.toWorld(entity.x2, entity.y2)
+            val (e1, n1) = transform.toWorld(entity.x1, entity.y1)
+            val (e2, n2) = transform.toWorld(entity.x2, entity.y2)
             ptSegDist(we, wn, e1, n1, e2, n2)
         }
         is DxfEntity.Polyline -> {
-            entity.vertices.zipWithNext().minOfOrNull { (v1, v2) ->
-                val (e1, n1) = dxfTransform.toWorld(v1.x.toDouble(), v1.y.toDouble())
-                val (e2, n2) = dxfTransform.toWorld(v2.x.toDouble(), v2.y.toDouble())
+            var minDist = entity.vertices.zipWithNext().minOfOrNull { (v1, v2) ->
+                val (e1, n1) = transform.toWorld(v1.x.toDouble(), v1.y.toDouble())
+                val (e2, n2) = transform.toWorld(v2.x.toDouble(), v2.y.toDouble())
                 ptSegDist(we, wn, e1, n1, e2, n2)
             } ?: Double.MAX_VALUE
+            
+            if (entity.closed && entity.vertices.size > 2) {
+                val v1 = entity.vertices.last()
+                val v2 = entity.vertices.first()
+                val (e1, n1) = transform.toWorld(v1.x.toDouble(), v1.y.toDouble())
+                val (e2, n2) = transform.toWorld(v2.x.toDouble(), v2.y.toDouble())
+                val d = ptSegDist(we, wn, e1, n1, e2, n2)
+                if (d < minDist) minDist = d
+            }
+            minDist
         }
         is DxfEntity.Circle -> {
-            val (ce, cn) = dxfTransform.toWorld(entity.cx, entity.cy)
-            val r = entity.radius * dxfTransform.scale
+            val (ce, cn) = transform.toWorld(entity.cx, entity.cy)
+            val r = entity.radius * transform.scale
             abs(sqrt((we - ce) * (we - ce) + (wn - cn) * (wn - cn)) - r)
         }
         is DxfEntity.Arc -> {
-            val (ce, cn) = dxfTransform.toWorld(entity.cx, entity.cy)
-            val r = entity.radius * dxfTransform.scale
+            val (ce, cn) = transform.toWorld(entity.cx, entity.cy)
+            val r = entity.radius * transform.scale
             val distToCirc = abs(sqrt((we - ce) * (we - ce) + (wn - cn) * (wn - cn)) - r)
             if (distToCirc > 40.0 / scaleFactor) {
                 distToCirc
             } else {
-                val (dxCoord, dyCoord) = dxfTransform.inverse(we, wn)
+                val (dxCoord, dyCoord) = transform.inverse(we, wn)
                 var angle = Math.toDegrees(atan2(dyCoord - entity.cy, dxCoord - entity.cx))
                 if (angle < 0) angle += 360.0
                 var end = entity.endDeg; if (end <= entity.startDeg) end += 360.0
@@ -825,6 +1020,43 @@ class SurveyCanvasView @JvmOverloads constructor(
                 if (a <= end) distToCirc else distToCirc + 100.0
             }
         }
+        is DxfEntity.Point -> {
+            val (pe, pn) = transform.toWorld(entity.x, entity.y)
+            sqrt((we - pe) * (we - pe) + (wn - pn) * (wn - pn))
+        }
+        is DxfEntity.Text -> {
+            val (te, tn) = transform.toWorld(entity.x, entity.y)
+            sqrt((we - te) * (we - te) + (wn - tn) * (wn - tn))
+        }
+        is DxfEntity.Ellipse -> {
+            val (ce, cn) = transform.toWorld(entity.cx, entity.cy)
+            sqrt((we - ce) * (we - ce) + (wn - cn) * (wn - cn))
+        }
+        is DxfEntity.Spline -> {
+            entity.controlPoints.minOfOrNull { v ->
+                val (ve, vn) = transform.toWorld(v.x.toDouble(), v.y.toDouble())
+                sqrt((we - ve) * (we - ve) + (wn - vn) * (wn - vn))
+            } ?: Double.MAX_VALUE
+        }
+        is DxfEntity.Dimension -> {
+            val (e1, n1) = transform.toWorld(entity.x1, entity.y1)
+            val (e2, n2) = transform.toWorld(entity.x2, entity.y2)
+            ptSegDist(we, wn, e1, n1, e2, n2)
+        }
+        is DxfEntity.Hatch -> {
+            entity.loops.flatten().minOfOrNull { v ->
+                val (ve, vn) = transform.toWorld(v.x.toDouble(), v.y.toDouble())
+                sqrt((we - ve) * (we - ve) + (wn - vn) * (wn - vn))
+            } ?: Double.MAX_VALUE
+        }
+        is DxfEntity.Leader -> {
+            entity.vertices.zipWithNext().minOfOrNull { (v1, v2) ->
+                val (e1, n1) = transform.toWorld(v1.x.toDouble(), v1.y.toDouble())
+                val (e2, n2) = transform.toWorld(v2.x.toDouble(), v2.y.toDouble())
+                ptSegDist(we, wn, e1, n1, e2, n2)
+            } ?: Double.MAX_VALUE
+        }
+        else -> Double.MAX_VALUE
     }
 
     private fun ptSegDist(px: Double, py: Double, ax: Double, ay: Double, bx: Double, by: Double): Double {
@@ -880,77 +1112,165 @@ class SurveyCanvasView @JvmOverloads constructor(
             if (d < bestDist) { bestDist = d; best = DxfSnapPoint(snapE, snapN, dxX, dxY, type, lbl) }
         }
 
-        dxf.entities.forEach { entity ->
-            when (entity) {
-                is DxfEntity.Line -> {
-                    val (e1, n1) = dxfTransform.toWorld(entity.x1, entity.y1)
-                    val (e2, n2) = dxfTransform.toWorld(entity.x2, entity.y2)
-                    tryAdd(e1, n1, entity.x1, entity.y1, SnapType.ENDPOINT, "端點")
-                    tryAdd(e2, n2, entity.x2, entity.y2, SnapType.ENDPOINT, "端點")
-                    val (em, nm) = dxfTransform.toWorld((entity.x1 + entity.x2) / 2, (entity.y1 + entity.y2) / 2)
-                    tryAdd(em, nm, (entity.x1 + entity.x2) / 2, (entity.y1 + entity.y2) / 2, SnapType.MIDPOINT, "中點")
-                }
-                is DxfEntity.Polyline -> {
-                    entity.vertices.forEach { v ->
-                        val (ve, vn) = dxfTransform.toWorld(v.x.toDouble(), v.y.toDouble())
-                        tryAdd(ve, vn, v.x.toDouble(), v.y.toDouble(), SnapType.ENDPOINT, "頂點")
+        fun checkSnapPoints(entities: List<DxfEntity>, currentTransform: DxfTransform) {
+            entities.forEach { entity ->
+                if (!visibleLayers.contains(entity.layer)) return@forEach
+
+                when (entity) {
+                    is DxfEntity.Insert -> {
+                        val blockEntities = dxf.blocks[entity.blockName] ?: return@forEach
+                        val ie = entity.x; val inN = entity.y
+                        // 簡化 Insert 變換處理：暫不考慮旋轉縮放對 Snap 的完整矩陣運算，僅位移
+                        val (weI, wnI) = currentTransform.toWorld(ie, inN)
+                        val blockTransform = DxfTransform(weI, wnI, currentTransform.scale * entity.scaleX, currentTransform.rotationRad + Math.toRadians(entity.rotation))
+                        checkSnapPoints(blockEntities, blockTransform)
                     }
-                    entity.vertices.zipWithNext().forEach { (v1, v2) ->
-                        val mx = (v1.x + v2.x) / 2.0; val my = (v1.y + v2.y) / 2.0
-                        val (em, nm) = dxfTransform.toWorld(mx, my)
-                        tryAdd(em, nm, mx, my, SnapType.MIDPOINT, "中點")
+                    is DxfEntity.Line -> {
+                        val (e1, n1) = currentTransform.toWorld(entity.x1, entity.y1)
+                        val (e2, n2) = currentTransform.toWorld(entity.x2, entity.y2)
+                        tryAdd(e1, n1, entity.x1, entity.y1, SnapType.ENDPOINT, "端點")
+                        tryAdd(e2, n2, entity.x2, entity.y2, SnapType.ENDPOINT, "端點")
+                        val (em, nm) = currentTransform.toWorld((entity.x1 + entity.x2) / 2, (entity.y1 + entity.y2) / 2)
+                        tryAdd(em, nm, (entity.x1 + entity.x2) / 2, (entity.y1 + entity.y2) / 2, SnapType.MIDPOINT, "中點")
                     }
-                }
-                is DxfEntity.Circle -> {
-                    val (ce, cn) = dxfTransform.toWorld(entity.cx, entity.cy)
-                    tryAdd(ce, cn, entity.cx, entity.cy, SnapType.CENTER, "圓心")
-                }
-                is DxfEntity.Arc -> {
-                    val (ce, cn) = dxfTransform.toWorld(entity.cx, entity.cy)
-                    tryAdd(ce, cn, entity.cx, entity.cy, SnapType.CENTER, "圓心")
-                    val sRad = Math.toRadians(entity.startDeg); val eRad = Math.toRadians(entity.endDeg)
-                    val sx1 = entity.cx + entity.radius * cos(sRad); val sy1 = entity.cy + entity.radius * sin(sRad)
-                    val ex1 = entity.cx + entity.radius * cos(eRad); val ey1 = entity.cy + entity.radius * sin(eRad)
-                    val (se, sn) = dxfTransform.toWorld(sx1, sy1); val (ee, en) = dxfTransform.toWorld(ex1, ey1)
-                    tryAdd(se, sn, sx1, sy1, SnapType.ENDPOINT, "弧端點")
-                    tryAdd(ee, en, ex1, ey1, SnapType.ENDPOINT, "弧端點")
+                    is DxfEntity.Polyline -> {
+                        entity.vertices.forEach { v ->
+                            val (ve, vn) = currentTransform.toWorld(v.x.toDouble(), v.y.toDouble())
+                            tryAdd(ve, vn, v.x.toDouble(), v.y.toDouble(), SnapType.ENDPOINT, "頂點")
+                        }
+                        entity.vertices.zipWithNext().forEach { (v1, v2) ->
+                            val mx = (v1.x + v2.x) / 2.0; val my = (v1.y + v2.y) / 2.0
+                            val (em, nm) = currentTransform.toWorld(mx, my)
+                            tryAdd(em, nm, mx, my, SnapType.MIDPOINT, "中點")
+                        }
+                        if (entity.closed && entity.vertices.size > 2) {
+                            val mx = (entity.vertices.last().x + entity.vertices.first().x) / 2.0
+                            val my = (entity.vertices.last().y + entity.vertices.first().y) / 2.0
+                            val (em, nm) = currentTransform.toWorld(mx, my)
+                            tryAdd(em, nm, mx, my, SnapType.MIDPOINT, "中點")
+                        }
+                    }
+                    is DxfEntity.Circle -> {
+                        val (ce, cn) = currentTransform.toWorld(entity.cx, entity.cy)
+                        tryAdd(ce, cn, entity.cx, entity.cy, SnapType.CENTER, "圓心")
+                    }
+                    is DxfEntity.Arc -> {
+                        val (ce, cn) = currentTransform.toWorld(entity.cx, entity.cy)
+                        tryAdd(ce, cn, entity.cx, entity.cy, SnapType.CENTER, "圓心")
+                        val sRad = Math.toRadians(entity.startDeg); val eRad = Math.toRadians(entity.endDeg)
+                        val sx1 = entity.cx + entity.radius * cos(sRad); val sy1 = entity.cy + entity.radius * sin(sRad)
+                        val ex1 = entity.cx + entity.radius * cos(eRad); val ey1 = entity.cy + entity.radius * sin(eRad)
+                        val (se, sn) = currentTransform.toWorld(sx1, sy1); val (ee, en) = currentTransform.toWorld(ex1, ey1)
+                        tryAdd(se, sn, sx1, sy1, SnapType.ENDPOINT, "弧端點")
+                        tryAdd(ee, en, ex1, ey1, SnapType.ENDPOINT, "弧端點")
+                    }
+                    is DxfEntity.Point -> {
+                        val (pe, pn) = currentTransform.toWorld(entity.x, entity.y)
+                        tryAdd(pe, pn, entity.x, entity.y, SnapType.ENDPOINT, "點")
+                    }
+                    is DxfEntity.Text -> {
+                        val (te, tn) = currentTransform.toWorld(entity.x, entity.y)
+                        tryAdd(te, tn, entity.x, entity.y, SnapType.ENDPOINT, "文字插入點")
+                    }
+                    is DxfEntity.Ellipse -> {
+                        val (ce, cn) = currentTransform.toWorld(entity.cx, entity.cy)
+                        tryAdd(ce, cn, entity.cx, entity.cy, SnapType.CENTER, "橢圓中心")
+                        val (me, mn) = currentTransform.toWorld(entity.cx + entity.mx, entity.cy + entity.my)
+                        tryAdd(me, mn, entity.cx + entity.mx, entity.cy + entity.my, SnapType.ENDPOINT, "橢圓長軸端點")
+                    }
+                    is DxfEntity.Spline -> {
+                        entity.controlPoints.forEach { v ->
+                            val (ve, vn) = currentTransform.toWorld(v.x.toDouble(), v.y.toDouble())
+                            tryAdd(ve, vn, v.x.toDouble(), v.y.toDouble(), SnapType.ENDPOINT, "控制點")
+                        }
+                    }
+                    is DxfEntity.Dimension -> {
+                        val (e1, n1) = currentTransform.toWorld(entity.x1, entity.y1)
+                        val (e2, n2) = currentTransform.toWorld(entity.x2, entity.y2)
+                        tryAdd(e1, n1, entity.x1, entity.y1, SnapType.ENDPOINT, "標註端點")
+                        tryAdd(e2, n2, entity.x2, entity.y2, SnapType.ENDPOINT, "標註端點")
+                    }
+                    is DxfEntity.Hatch -> {
+                        entity.loops.flatten().forEach { v ->
+                            val (ve, vn) = currentTransform.toWorld(v.x.toDouble(), v.y.toDouble())
+                            tryAdd(ve, vn, v.x.toDouble(), v.y.toDouble(), SnapType.ENDPOINT, "邊界點")
+                        }
+                    }
+                    is DxfEntity.Leader -> {
+                        entity.vertices.forEach { v ->
+                            val (ve, vn) = currentTransform.toWorld(v.x.toDouble(), v.y.toDouble())
+                            tryAdd(ve, vn, v.x.toDouble(), v.y.toDouble(), SnapType.ENDPOINT, "引線點")
+                        }
+                    }
+                    else -> {}
                 }
             }
         }
 
-        // 直線交點（僅檢查鄰近直線，限制數量避免效能問題）
-        val nearLines = dxf.entities.filterIsInstance<DxfEntity.Line>().filter { line ->
-            val (e1, n1) = dxfTransform.toWorld(line.x1, line.y1)
-            val (e2, n2) = dxfTransform.toWorld(line.x2, line.y2)
+        checkSnapPoints(dxf.entities, dxfTransform)
+
+        // 直線交點（僅檢查鄰近且可見直線）
+        val visibleLineEntities = mutableListOf<Pair<DxfEntity.Line, DxfTransform>>()
+        fun collectVisibleLines(entities: List<DxfEntity>, currentTransform: DxfTransform) {
+            entities.forEach { entity ->
+                if (!visibleLayers.contains(entity.layer)) return@forEach
+                if (entity is DxfEntity.Line) {
+                    visibleLineEntities.add(entity to currentTransform)
+                } else if (entity is DxfEntity.Insert) {
+                    val blockEntities = dxf.blocks[entity.blockName] ?: return@forEach
+                    val (weI, wnI) = currentTransform.toWorld(entity.x, entity.y)
+                    val blockTransform = DxfTransform(weI, wnI, currentTransform.scale * entity.scaleX, currentTransform.rotationRad + Math.toRadians(entity.rotation))
+                    collectVisibleLines(blockEntities, blockTransform)
+                }
+            }
+        }
+        collectVisibleLines(dxf.entities, dxfTransform)
+        
+        val nearLines = visibleLineEntities.filter { (line, transform) ->
+            val (e1, n1) = transform.toWorld(line.x1, line.y1)
+            val (e2, n2) = transform.toWorld(line.x2, line.y2)
             ptSegDist(we, wn, e1, n1, e2, n2) < tol * 3
-        }.take(20)
+        }.take(30)
+
         for (i in nearLines.indices) {
             for (j in i + 1 until nearLines.size) {
-                computeIntersect(nearLines[i], nearLines[j])?.let { (ix, iy) ->
-                    val (ie, ine) = dxfTransform.toWorld(ix, iy)
-                    tryAdd(ie, ine, ix, iy, SnapType.INTERSECTION, "交點")
+                val (l1, t1) = nearLines[i]; val (l2, t2) = nearLines[j]
+                val (p1a, p1b) = t1.toWorld(l1.x1, l1.y1) to t1.toWorld(l1.x2, l1.y2)
+                val (p2a, p2b) = t2.toWorld(l2.x1, l2.y1) to t2.toWorld(l2.x2, l2.y2)
+                computeIntersectWorld(p1a, p1b, p2a, p2b)?.let { (ie, ine) ->
+                    // 這裡 dxX, dxY 無法精確對應單一 DXF 空間，設為 0
+                    tryAdd(ie, ine, 0.0, 0.0, SnapType.INTERSECTION, "交點")
                 }
             }
         }
         return best
     }
 
-    private fun computeIntersect(l1: DxfEntity.Line, l2: DxfEntity.Line): Pair<Double, Double>? {
-        val d1x = l1.x2 - l1.x1; val d1y = l1.y2 - l1.y1
-        val d2x = l2.x2 - l2.x1; val d2y = l2.y2 - l2.y1
-        val cross = d1x * d2y - d1y * d2x
-        if (abs(cross) < 1e-12) return null
-        val t = ((l2.x1 - l1.x1) * d2y - (l2.y1 - l1.y1) * d2x) / cross
-        val u = ((l2.x1 - l1.x1) * d1y - (l2.y1 - l1.y1) * d1x) / cross
-        if (t < 0.0 || t > 1.0 || u < 0.0 || u > 1.0) return null
-        return (l1.x1 + t * d1x) to (l1.y1 + t * d1y)
+    private fun computeIntersectWorld(p1a: Pair<Double, Double>, p1b: Pair<Double, Double>, 
+                                      p2a: Pair<Double, Double>, p2b: Pair<Double, Double>): Pair<Double, Double>? {
+        val x1 = p1a.first; val y1 = p1a.second; val x2 = p1b.first; val y2 = p1b.second
+        val x3 = p2a.first; val y3 = p2a.second; val x4 = p2b.first; val y4 = p2b.second
+        val d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        if (abs(d) < 1e-12) return null
+        val px = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / d
+        val py = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / d
+        // 檢查是否在線段內
+        if (px < min(x1, x2) - 1e-6 || px > max(x1, x2) + 1e-6 || px < min(x3, x4) - 1e-6 || px > max(x3, x4) + 1e-6) return null
+        if (py < min(y1, y2) - 1e-6 || py > max(y1, y2) + 1e-6 || py < min(y3, y4) - 1e-6 || py > max(y3, y4) + 1e-6) return null
+        return px to py
     }
 
     fun clearDxfHighlight() { highlightedEntity = null; highlightedSnapPt = null; invalidate() }
 
+    fun setSelectedSnapPoints(snaps: List<DxfSnapPoint>) {
+        selectedSnapPoints.clear()
+        selectedSnapPoints.addAll(snaps)
+        invalidate()
+    }
+
     // ── 量測點位公開 API ──────────────────────────
     fun addMeasurePoint(snap: DxfSnapPoint) { measurePoints.add(snap); invalidate() }
-    fun removeLastMeasurePoint() { if (measurePoints.isNotEmpty()) { measurePoints.removeLast(); invalidate() } }
+    fun removeLastMeasurePoint() { if (measurePoints.isNotEmpty()) { measurePoints.removeAt(measurePoints.lastIndex); invalidate() } }
     fun clearMeasurePoints() { measurePoints.clear(); invalidate() }
     fun getMeasurePoints(): List<DxfSnapPoint> = measurePoints.toList()
 
@@ -1007,6 +1327,38 @@ class SurveyCanvasView @JvmOverloads constructor(
         }
     }
 
+    /** 繪製捕捉點的高亮標記 */
+    private fun drawSnapHighlight(canvas: Canvas) {
+        // 繪製目前單選點
+        highlightedSnapPt?.let { snap ->
+            drawSingleSnapMarker(canvas, snap, dxfSnapPaint, true)
+        }
+        
+        // 繪製所有已加入批次選取的點
+        selectedSnapPoints.forEach { snap ->
+            drawSingleSnapMarker(canvas, snap, dxfSnapPaint, false)
+        }
+    }
+
+    private fun drawSingleSnapMarker(canvas: Canvas, snap: DxfSnapPoint, paint: Paint, isHighlight: Boolean) {
+        val p = worldToLocal(snap.worldE, snap.worldN)
+        val r = if (isHighlight) 18f / scaleFactor else 15f / scaleFactor
+        paint.strokeWidth = (if (isHighlight) 4f else 2f) / scaleFactor
+        
+        canvas.drawCircle(p.x, p.y, r, paint)
+        canvas.drawLine(p.x - r * 1.5f, p.y, p.x + r * 1.5f, p.y, paint)
+        canvas.drawLine(p.x, p.y - r * 1.5f, p.x, p.y + r * 1.5f, paint)
+        
+        // 如果是批次選取點，標註序號或標籤
+        if (!isHighlight) {
+            canvas.save()
+            canvas.translate(p.x, p.y)
+            canvas.scale(1f / scaleFactor, -1f / scaleFactor)
+            canvas.drawText(snap.label.take(2), 0f, -r * scaleFactor - 5f, textPaint)
+            canvas.restore()
+        }
+    }
+
     // ── 相對位置疊加繪圖 ─────────────────────────
     private fun drawRelativeOverlay(canvas: Canvas) {
         val a = relativePointA ?: return
@@ -1033,6 +1385,85 @@ class SurveyCanvasView @JvmOverloads constructor(
             canvas.scale(1f / scaleFactor, -1f / scaleFactor)
             canvas.drawText("B", 0f, measureTextPaint.textSize * 0.35f, measureTextPaint)
             canvas.restore()
+        }
+    }
+
+    // ── 軌跡回放 ─────────────────────────────
+    private fun drawPlaybackTrail(canvas: Canvas) {
+        val visiblePoints = points.filter { visiblePointIds.contains(it.id) }
+        if (visiblePoints.size < 2) return
+        
+        val totalSegments = visiblePoints.size - 1
+        val showCount = (totalSegments * playbackProgress).toInt().coerceAtLeast(1)
+        
+        playbackTrailPaint.strokeWidth = 4f / scaleFactor
+        val ptRadius = 4f / scaleFactor
+        
+        for (i in 0 until showCount) {
+            val p1 = visiblePoints[i]
+            val p2 = visiblePoints[i + 1]
+            
+            val e1 = ((p1.easting ?: 0.0) - minE).toFloat()
+            val n1 = ((p1.northing ?: 0.0) - minN).toFloat()
+            val e2 = ((p2.easting ?: 0.0) - minE).toFloat()
+            val n2 = ((p2.northing ?: 0.0) - minN).toFloat()
+            
+            // 漸層淡出效果 (較舊的軌跡較透明)
+            val ageFactor = (i.toFloat() / showCount)
+            val alpha = (100 + 155 * ageFactor).toInt()
+            playbackTrailPaint.alpha = alpha
+            playbackPointPaint.alpha = alpha
+            
+            canvas.drawLine(e1, n1, e2, n2, playbackTrailPaint)
+            canvas.drawCircle(e1, n1, ptRadius, playbackPointPaint)
+            
+            // 在最後一點畫大一點的標記
+            if (i == showCount - 1) {
+                playbackPointPaint.alpha = 255
+                canvas.drawCircle(e2, n2, ptRadius * 1.5f, playbackPointPaint)
+            }
+            
+            // 繪製前進方向箭頭
+            drawDirectionArrow(canvas, e1, n1, e2, n2, alpha)
+        }
+    }
+
+    private fun drawDirectionArrow(canvas: Canvas, x1: Float, y1: Float, x2: Float, y2: Float, alpha: Int) {
+        val dx = x2 - x1
+        val dy = y2 - y1
+        val len = sqrt(dx * dx + dy * dy)
+        val arrowSize = 12f / scaleFactor
+        
+        // 線段夠長才畫箭頭，避免過度擁擠
+        if (len > arrowSize * 4) {
+            val midX = x1 + dx * 0.6f // 稍微偏向終點
+            val midY = y1 + dy * 0.6f
+            val angle = atan2(dy, dx)
+            
+            val path = Path()
+            path.moveTo(midX, midY)
+            path.lineTo(
+                midX - arrowSize * cos(angle - 0.5f).toFloat(),
+                midY - arrowSize * sin(angle - 0.5f).toFloat()
+            )
+            path.lineTo(
+                midX - arrowSize * cos(angle + 0.5f).toFloat(),
+                midY - arrowSize * sin(angle + 0.5f).toFloat()
+            )
+            path.close()
+            
+            val oldStyle = symbolPaint.style
+            val oldColor = symbolPaint.color
+            val oldAlpha = symbolPaint.alpha
+            
+            symbolPaint.style = Paint.Style.FILL
+            symbolPaint.color = playbackTrailPaint.color
+            symbolPaint.alpha = alpha
+            canvas.drawPath(path, symbolPaint)
+            
+            symbolPaint.style = oldStyle
+            symbolPaint.color = oldColor
+            symbolPaint.alpha = oldAlpha
         }
     }
 
@@ -1110,6 +1541,25 @@ class SurveyCanvasView @JvmOverloads constructor(
             canvas.restore()
         }
 
+        // 單獨處理不在 points 清單中的 3D 放樣目標
+        currentStakeoutTarget?.let { target ->
+            if (target.id != 0L && visiblePointIds.contains(target.id)) return@let
+            val proj = proj3D(target)
+            
+            stakeoutPaint.strokeWidth = strokeWidth
+            val radius = pointRadius * 1.6f
+            drawPointSymbol(canvas, proj.x, proj.y, target.code, stakeoutPaint, radius)
+            
+            stakeoutRingPaint.strokeWidth = 2f / scaleFactor
+            canvas.drawCircle(proj.x, proj.y, radius * 2.2f, stakeoutRingPaint)
+
+            canvas.save()
+            canvas.translate(proj.x, proj.y)
+            canvas.scale(1f / scaleFactor, 1f / scaleFactor)
+            canvas.drawText(target.pointName, 15f, -15f, textPaint)
+            canvas.restore()
+        }
+
         canvas.restore()
     }
 
@@ -1157,6 +1607,18 @@ class SurveyCanvasView @JvmOverloads constructor(
     }
 
     // ── 共用標注輔助 ─────────────────────────────
+    private fun drawBaselineAnchor(canvas: Canvas, anchor: BaselineAnchor, label: String) {
+        val p = worldToLocal(anchor.easting, anchor.northing)
+        val r = 10f / scaleFactor
+        symbolPaint.color = Color.rgb(255, 165, 0)
+        canvas.drawCircle(p.x, p.y, r, symbolPaint)
+        canvas.save()
+        canvas.translate(p.x, p.y)
+        canvas.scale(1f / scaleFactor, -1f / scaleFactor)
+        canvas.drawText(label, 0f, -r * scaleFactor - 5f, textPaint)
+        canvas.restore()
+    }
+
     private fun drawElevationBaseLabel(canvas: Canvas, pt: PointEntity) {
         elevationBasePoint?.let { base ->
             if (pt.id != base.id) {
@@ -1173,15 +1635,20 @@ class SurveyCanvasView @JvmOverloads constructor(
     }
 
     private fun drawBaselineOffsetLabel(canvas: Canvas, pt: PointEntity) {
-        baselinePoints?.let { (b1, b2) ->
-            if (pt.id != b1.id && pt.id != b2.id) {
-                SurveyMathUtils.calculateBaselineOffset(b1, b2, pt)?.let { res ->
-                    val oldColor = textPaint.color; val oldSize = textPaint.textSize
-                    textPaint.color = Color.YELLOW; textPaint.textSize = 20f
-                    canvas.drawText(String.format(java.util.Locale.US, " S:%.2f O:%+.2f", res.station, res.offset),
-                        15f, 40f, textPaint)
-                    textPaint.color = oldColor; textPaint.textSize = oldSize
-                }
+        val b1 = baselineA1
+        val b2 = baselineA2
+        if (b1 != null && b2 != null) {
+            if (pt.pointName == b1.name && pt.easting == b1.easting && pt.northing == b1.northing) return
+            if (pt.pointName == b2.name && pt.easting == b2.easting && pt.northing == b2.northing) return
+            SurveyMathUtils.calculateBaselineOffset(b1, b2, pt)?.let { res ->
+                val oldColor = textPaint.color; val oldSize = textPaint.textSize
+                textPaint.color = Color.YELLOW
+                textPaint.textSize = 28f  // constant screen px — already in scaled canvas space
+                canvas.drawText(
+                    String.format(java.util.Locale.US, " S:%.3f  O:%+.3f", res.station, res.offset),
+                    15f, 55f, textPaint
+                )
+                textPaint.color = oldColor; textPaint.textSize = oldSize
             }
         }
     }

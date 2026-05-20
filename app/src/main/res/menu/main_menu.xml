@@ -59,6 +59,11 @@
     <!-- 說明 -->
     <group android:id="@+id/group_info">
         <item
+            android:id="@+id/menu_help"
+            android:title="操作說明"
+            android:orderInCategory="399"
+            app:showAsAction="never" />
+        <item
             android:id="@+id/menu_about"
             android:title="關於"
             android:orderInCategory="400"

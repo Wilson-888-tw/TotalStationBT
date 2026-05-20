@@ -27,7 +27,6 @@ import com.survey.totalstationbt.model.BluetoothDeviceInfo
 import com.survey.totalstationbt.model.ConnectionState
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import androidx.core.content.FileProvider
 import android.provider.MediaStore
 import java.io.File
 import java.text.SimpleDateFormat
@@ -40,7 +39,6 @@ class MainActivity : AppCompatActivity() {
     private val viewModel: MainViewModel by viewModels()
 
     private lateinit var dataAdapter: DataAdapter
-    private var currentPhotoPath: String? = null
     private var photoPointId: Long? = null
 
     // ── 權限請求 ─────────────────────────────────
@@ -63,14 +61,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val takePhotoLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == RESULT_OK) {
-            val pointId = photoPointId ?: return@registerForActivityResult
-            val path = currentPhotoPath ?: return@registerForActivityResult
-            viewModel.updatePointPhoto(pointId, path)
-            showSnackbar("相片已關聯至點位")
+    private val pickImageLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri ?: return@registerForActivityResult
+        val pointId = photoPointId ?: return@registerForActivityResult
+        
+        val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val storageDir: File? = getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES)
+        if (storageDir?.exists() == false) storageDir.mkdirs()
+        
+        val targetFile = File(storageDir, "SURVEY_IMG_${pointId}_${timeStamp}.jpg")
+        
+        try {
+            contentResolver.openInputStream(uri)?.use { input ->
+                targetFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            viewModel.updatePointPhoto(pointId, targetFile.absolutePath)
+            showSnackbar("相片已從相簿匯入並關聯至點位")
+        } catch (e: Exception) {
+            showSnackbar("無法匯入相片：${e.message}")
         }
     }
 
@@ -97,7 +109,7 @@ class MainActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         dataAdapter = DataAdapter { action ->
             when (action) {
-                is DataAdapter.Action.Photo -> startCamera(action.line)
+                is DataAdapter.Action.Photo -> pickFromGallery(action.line)
                 is DataAdapter.Action.Share -> sharePoint(action.line)
                 is DataAdapter.Action.Edit -> showEditCodeDialog(action.line)
                 is DataAdapter.Action.SelectionChanged -> {
@@ -280,6 +292,9 @@ class MainActivity : AppCompatActivity() {
                             viewModel.shareFile(result.file)
                         }.show()
                     }
+                    is MainViewModel.ExportResult.Info -> {
+                        showSnackbar(result.message)
+                    }
                     is MainViewModel.ExportResult.Error -> {
                         showSnackbar(result.message)
                     }
@@ -438,8 +453,8 @@ class MainActivity : AppCompatActivity() {
             R.id.menu_export_csv -> { viewModel.exportCSV(); true }
             R.id.menu_export_dxf -> { viewModel.exportDXF(); true }
             R.id.menu_export_raw -> { viewModel.exportRaw(); true }
-            R.id.menu_export_raw -> { viewModel.exportRaw(); true }
             R.id.menu_clear      -> { viewModel.clearData(); true }
+            R.id.menu_help       -> { startActivity(android.content.Intent(this, HelpActivity::class.java)); true }
             R.id.menu_about      -> { showAboutDialog(); true }
             else -> super.onOptionsItemSelected(item)
         }
@@ -535,38 +550,10 @@ class MainActivity : AppCompatActivity() {
         Snackbar.make(binding.root, msg, Snackbar.LENGTH_SHORT).show()
     }
 
-    private fun startCamera(line: com.survey.totalstationbt.bluetooth.BluetoothSerialService.ReceivedLine) {
+    private fun pickFromGallery(line: com.survey.totalstationbt.bluetooth.BluetoothSerialService.ReceivedLine) {
         val point = viewModel.currentPoints.value.find { it.timestamp == line.timestamp } ?: return
         photoPointId = point.id
-
-        val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val storageDir: File? = getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES)
-        
-        // 核心修復：確保目錄存在
-        if (storageDir?.exists() == false) {
-            storageDir.mkdirs()
-        }
-
-        val imageFile = try {
-            File.createTempFile("SURVEY_${point.pointName}_${timeStamp}_", ".jpg", storageDir)
-        } catch (e: Exception) {
-            showSnackbar("無法建立相片檔案：${e.message}")
-            return
-        }
-        
-        currentPhotoPath = imageFile.absolutePath
-
-        try {
-            val photoURI = FileProvider.getUriForFile(this, "${packageName}.provider", imageFile)
-            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                putExtra(MediaStore.EXTRA_OUTPUT, photoURI)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            }
-            takePhotoLauncher.launch(intent)
-        } catch (e: Exception) {
-            showSnackbar("啟動相機失敗：${e.message}")
-        }
+        pickImageLauncher.launch("image/*")
     }
 
     private fun sharePoint(line: com.survey.totalstationbt.bluetooth.BluetoothSerialService.ReceivedLine) {

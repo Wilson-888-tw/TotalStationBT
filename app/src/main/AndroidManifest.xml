@@ -51,9 +51,10 @@
             android:exported="false"
             android:label="2D 平面圖" />
 
-        <service
-            android:name=".bluetooth.BluetoothSerialService"
-            android:exported="false" />
+        <activity
+            android:name=".ui.HelpActivity"
+            android:exported="false"
+            android:label="操作說明" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

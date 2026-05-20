@@ -25,6 +25,14 @@ sealed class DxfEntity {
     data class Polyline(val vertices: List<PointF>, val closed: Boolean = false, override val layer: String = "0") : DxfEntity()
     data class Circle(val cx: Double, val cy: Double, val radius: Double, override val layer: String = "0") : DxfEntity()
     data class Arc(val cx: Double, val cy: Double, val radius: Double, val startDeg: Double, val endDeg: Double, override val layer: String = "0") : DxfEntity()
+    data class Point(val x: Double, val y: Double, override val layer: String = "0") : DxfEntity()
+    data class Text(val x: Double, val y: Double, val text: String, val height: Double, val rotation: Double = 0.0, override val layer: String = "0") : DxfEntity()
+    data class Ellipse(val cx: Double, val cy: Double, val mx: Double, val my: Double, val ratio: Double, override val layer: String = "0") : DxfEntity()
+    data class Insert(val blockName: String, val x: Double, val y: Double, val scaleX: Double = 1.0, val scaleY: Double = 1.0, val rotation: Double = 0.0, override val layer: String = "0") : DxfEntity()
+    data class Spline(val controlPoints: List<PointF>, val degree: Int = 3, override val layer: String = "0") : DxfEntity()
+    data class Dimension(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val text: String, override val layer: String = "0") : DxfEntity()
+    data class Hatch(val loops: List<List<PointF>>, override val layer: String = "0") : DxfEntity()
+    data class Leader(val vertices: List<PointF>, override val layer: String = "0") : DxfEntity()
 }
 
 data class DxfData(
@@ -32,7 +40,8 @@ data class DxfData(
     val minX: Double,
     val maxX: Double,
     val minY: Double,
-    val maxY: Double
+    val maxY: Double,
+    val blocks: Map<String, List<DxfEntity>> = emptyMap()
 ) {
     val isEmpty get() = entities.isEmpty()
     val centerX get() = (minX + maxX) / 2.0

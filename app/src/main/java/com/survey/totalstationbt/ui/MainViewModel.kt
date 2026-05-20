@@ -16,14 +16,21 @@ import com.survey.totalstationbt.utils.FileExporter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import java.io.File
 
 import com.survey.totalstationbt.db.AppDatabase
 import com.survey.totalstationbt.db.PointEntity
 import com.survey.totalstationbt.db.ProjectEntity
 import com.survey.totalstationbt.db.SurveyRepository
+import com.survey.totalstationbt.model.DxfData
+import com.survey.totalstationbt.model.DxfTransform
+import com.survey.totalstationbt.parser.DxfParser
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.withContext
+import java.io.FileOutputStream
+import java.io.InputStream
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @SuppressLint("MissingPermission")
@@ -52,10 +59,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             repository.allProjects.firstOrNull()?.firstOrNull()?.let {
                 _currentProject.value = it
+                loadDxfForProject(it)
             } ?: run {
                 val defaultProject = ProjectEntity(name = "預設專案 ${java.text.SimpleDateFormat("MMdd", java.util.Locale.getDefault()).format(java.util.Date())}")
                 val id = repository.insertProject(defaultProject)
-                _currentProject.value = defaultProject.copy(id = id)
+                val project = defaultProject.copy(id = id)
+                _currentProject.value = project
             }
         }
     }
@@ -146,8 +155,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         var cachedDxfTransform: com.survey.totalstationbt.model.DxfTransform = com.survey.totalstationbt.model.DxfTransform.IDENTITY
     }
 
+    private val _dxfLoadedEvent = MutableSharedFlow<Unit>(replay = 1)
+    val dxfLoadedEvent = _dxfLoadedEvent.asSharedFlow()
+
     sealed class ExportResult {
         data class Success(val file: File) : ExportResult()
+        data class Info(val message: String) : ExportResult()
         data class Error(val message: String) : ExportResult()
     }
 
@@ -159,8 +172,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun connectDevice(deviceInfo: BluetoothDeviceInfo) {
         val adapter = bluetoothAdapter ?: return
-        val device = adapter.getRemoteDevice(deviceInfo.address)
-        btService.connect(device)
+        val device = try {
+            adapter.getRemoteDevice(deviceInfo.address)
+        } catch (e: IllegalArgumentException) {
+            viewModelScope.launch { _exportEvent.emit(ExportResult.Error("裝置位址無效：${deviceInfo.address}")) }
+            return
+        }
+        btService.connect(device, adapter)
     }
 
     fun disconnect() = btService.disconnect()
@@ -247,6 +265,84 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setCurrentProject(project: ProjectEntity) {
         _currentProject.value = project
+        // 當切換專案時，若有持久化的 DXF 資訊則嘗試載入
+        loadDxfForProject(project)
+    }
+
+    private fun loadDxfForProject(project: ProjectEntity) {
+        val path = project.dxfPath ?: return
+        val file = File(path)
+        if (!file.exists()) return
+        
+        viewModelScope.launch {
+            val data = withContext(Dispatchers.IO) {
+                try {
+                    file.inputStream().use { DxfParser.parse(it) }
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            if (data != null) {
+                cachedDxfData = data
+                cachedDxfTransform = DxfTransform(
+                    project.dxfDx, project.dxfDy, 
+                    project.dxfScale, project.dxfRotation
+                )
+                _dxfLoadedEvent.emit(Unit)
+            }
+        }
+    }
+
+    fun saveDxfToProject(uri: android.net.Uri, transform: DxfTransform) {
+        val project = _currentProject.value ?: return
+        viewModelScope.launch {
+            val savedPath = withContext(Dispatchers.IO) {
+                try {
+                    val dxfFolder = File(context.filesDir, "cad_maps")
+                    if (!dxfFolder.exists()) dxfFolder.mkdirs()
+                    
+                    val fileName = "project_${project.id}_base.dxf"
+                    val targetFile = File(dxfFolder, fileName)
+                    
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(targetFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    targetFile.absolutePath
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            
+            if (savedPath != null) {
+                val updatedProject = project.copy(
+                    dxfPath = savedPath,
+                    dxfDx = transform.dx,
+                    dxfDy = transform.dy,
+                    dxfScale = transform.scale,
+                    dxfRotation = transform.rotationRad
+                )
+                repository.updateProject(updatedProject)
+                _currentProject.value = updatedProject
+                cachedDxfTransform = transform
+            }
+        }
+    }
+
+    fun updateDxfTransform(transform: DxfTransform) {
+        val project = _currentProject.value ?: return
+        viewModelScope.launch {
+            val updatedProject = project.copy(
+                dxfDx = transform.dx,
+                dxfDy = transform.dy,
+                dxfScale = transform.scale,
+                dxfRotation = transform.rotationRad
+            )
+            repository.updateProject(updatedProject)
+            _currentProject.value = updatedProject
+            cachedDxfTransform = transform
+        }
     }
 
     fun deleteProject(project: ProjectEntity) {
@@ -308,8 +404,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
 
-            // 開始傳輸通知
-            _exportEvent.emit(ExportResult.Error("開始傳輸 ${points.size} 個點位…"))
+            _exportEvent.emit(ExportResult.Info("開始傳輸 ${points.size} 個點位…"))
 
             points.forEachIndexed { index, pt ->
                 // Nikon 格式: PT,N,E,Z,CD
@@ -331,7 +426,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 delay(100) 
             }
             
-            _exportEvent.emit(ExportResult.Error("整批點位傳輸完成！"))
+            _exportEvent.emit(ExportResult.Info("整批點位傳輸完成！"))
         }
     }
 
@@ -363,7 +458,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         ))
                     }
                 }
-                _exportEvent.emit(ExportResult.Error("匯入完成 (${lines.size} 行)"))
+                _exportEvent.emit(ExportResult.Info("匯入完成 (${lines.size} 行)"))
             } catch (e: Exception) {
                 _exportEvent.emit(ExportResult.Error("匯入失敗：${e.message}"))
             }
