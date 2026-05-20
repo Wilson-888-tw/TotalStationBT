@@ -24,17 +24,29 @@ data class SurveyPoint(
     fun toCSVRow(): String {
         val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
         return listOf(
-            pointName,
+            csvField(pointName),
             easting?.toString() ?: "",
             northing?.toString() ?: "",
             elevation?.toString() ?: "",
-            code,
+            csvField(code),
             fmt.format(java.util.Date(timestamp))
         ).joinToString(",")
     }
 
+    private fun csvField(s: String): String {
+        if (s.none { it == ',' || it == '"' || it == '\n' || it == '\r' }) return s
+        return "\"${s.replace("\"", "\"\"")}\""
+    }
+
     companion object {
         val CSV_HEADER = "點號,E(橫坐標),N(縱坐標),Z(高程),編碼,時間\n"
+    }
+}
+
+data class BaselineAnchor(val name: String, val easting: Double, val northing: Double) {
+    companion object {
+        fun from(pt: com.survey.totalstationbt.db.PointEntity) =
+            BaselineAnchor(pt.pointName, pt.easting ?: 0.0, pt.northing ?: 0.0)
     }
 }
 

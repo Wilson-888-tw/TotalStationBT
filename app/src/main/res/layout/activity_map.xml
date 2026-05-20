@@ -106,6 +106,56 @@
             app:srcCompat="@drawable/ic_measure"
             app:tint="@color/md3_on_secondary_container" />
 
+        <!-- ── 軌跡回放控制面板 ───────────────────── -->
+        <LinearLayout
+            android:id="@+id/cardPlayback"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/md3_surface_container_high"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:elevation="8dp"
+            android:layout_gravity="bottom"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnPlayPause"
+                    style="@style/Widget.Material3.Button.Icon"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    app:icon="@drawable/ic_play"
+                    android:contentDescription="播放" />
+
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/sliderPlayback"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginHorizontal="8dp"
+                    android:valueFrom="0"
+                    android:valueTo="1"
+                    android:value="1" />
+
+                <TextView
+                    android:id="@+id/tvPlaybackInfo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="100%"
+                    android:textColor="@color/md3_on_surface"
+                    android:textSize="12sp"
+                    android:minWidth="40dp"
+                    android:gravity="end" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
         <!-- ── 放樣導引 BottomSheet ─────────────────── -->
         <LinearLayout
             android:id="@+id/cardStakeout"
@@ -151,6 +201,16 @@
                         android:textColor="@color/md3_on_surface"
                         android:textSize="15sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvStakeoutProgress"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:text="(1/1)"
+                        android:textColor="@color/md3_on_surface_variant"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
 
                     <CheckBox
                         android:id="@+id/checkElevationOnly"
@@ -211,6 +271,49 @@
 
                     </LinearLayout>
 
+                    <LinearLayout
+                        android:id="@+id/layoutBatchControls"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:visibility="gone"
+                        android:layout_marginEnd="8dp">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnPrevStakeout"
+                            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:layout_marginEnd="4dp"
+                            app:icon="@drawable/ic_chevron_left"
+                            android:contentDescription="上一個"
+                            app:iconPadding="0dp"
+                            app:iconSize="20dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnNextStakeout"
+                            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            app:icon="@drawable/ic_chevron_right"
+                            android:contentDescription="下一個"
+                            app:iconPadding="0dp"
+                            app:iconSize="20dp" />
+
+                    </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnShareStakeout"
+                        style="@style/Widget.Material3.Button.IconButton.Outlined"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        app:icon="@drawable/ic_share_point"
+                        android:contentDescription="分享導引"
+                        app:iconPadding="0dp"
+                        app:iconSize="20dp"
+                        app:strokeColor="@color/md3_secondary" />
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnStopStakeout"
                         style="@style/Widget.Material3.Button.OutlinedButton"
@@ -250,10 +353,39 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="點位列表"
+                android:text="圖層與設定"
                 android:textColor="@color/md3_on_surface"
                 android:textSize="17sp"
                 android:textStyle="bold" />
+
+        </LinearLayout>
+
+        <!-- 底圖透明度 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp"
+            android:background="@color/md3_surface_container">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="底圖透明度"
+                android:textColor="@color/md3_on_surface_variant"
+                android:textSize="12sp"
+                android:layout_marginBottom="4dp" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sliderDxfAlpha"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:valueFrom="0"
+                android:valueTo="255"
+                android:stepSize="1"
+                android:value="200" />
 
         </LinearLayout>
 
@@ -277,12 +409,6 @@
                 android:textSize="13sp"
                 android:textColor="@color/md3_secondary" />
 
-            <View
-                android:layout_width="1dp"
-                android:layout_height="20dp"
-                android:layout_gravity="center_vertical"
-                android:background="@color/divider" />
-
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnClearAll"
                 style="@style/Widget.Material3.Button.TextButton"
@@ -291,7 +417,7 @@
                 android:layout_weight="1"
                 android:text="全取消"
                 android:textSize="13sp"
-                android:textColor="@color/md3_on_surface_variant" />
+                android:textColor="@color/md3_primary" />
 
         </LinearLayout>
 

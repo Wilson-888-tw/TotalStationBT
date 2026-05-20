@@ -24,6 +24,7 @@ import java.util.Locale
 import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.survey.totalstationbt.model.BaselineAnchor
 import com.survey.totalstationbt.model.DxfData
 import com.survey.totalstationbt.model.DxfSnapPoint
 import com.survey.totalstationbt.model.DxfTapMode
@@ -43,11 +44,17 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private val visiblePointIds = mutableSetOf<Long>()
     private var stakeoutTarget: PointEntity? = null
+    private var stakeoutTargets: List<PointEntity> = emptyList()
+    private var currentStakeoutIndex = 0
     private var elevationBase: PointEntity? = null
-    private var baselineP1: PointEntity? = null
-    private var baselineP2: PointEntity? = null
+    private var baselineA1: BaselineAnchor? = null
+    private var baselineA2: BaselineAnchor? = null
     private var tts: TextToSpeech? = null
     private lateinit var stakeoutSheet: BottomSheetBehavior<*>
+    private var playbackJob: kotlinx.coroutines.Job? = null
+    private var isPlaying = false
+    private var lastGuidance: StakeoutCalculator.Guidance? = null
+    private var lastImportedUri: android.net.Uri? = null
 
     private var pendingDxfData: DxfData? = null
     private var currentDxfData: DxfData?
@@ -59,19 +66,25 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     // Snap points pre-filled for alignment dialog
     private var presetSnap1: DxfSnapPoint? = null
     private var presetSnap2: DxfSnapPoint? = null
+    private val selectedDxfSnaps = mutableListOf<DxfSnapPoint>()
 
     private val dxfImportLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@registerForActivityResult
+        lastImportedUri = uri
         lifecycleScope.launch {
+            var errorMsg: String? = null
             val data = withContext(Dispatchers.IO) {
                 try {
                     contentResolver.openInputStream(uri)?.use { DxfParser.parse(it) }
                 } catch (e: Exception) {
+                    errorMsg = e.message
                     null
                 }
             }
-            if (data == null || data.isEmpty) {
-                showSnackbar("DXF 檔案讀取失敗或無圖元")
+            if (data == null) {
+                showSnackbar("CAD 檔案解析失敗：${errorMsg ?: "未知錯誤"}")
+            } else if (data.isEmpty) {
+                showSnackbar("CAD 檔案中無支援的圖元 (僅支援 LINE, LWPOLYLINE, CIRCLE, ARC)")
             } else {
                 onDxfLoaded(data)
             }
@@ -94,6 +107,10 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         setupPointList()
         setupListeners()
         observeData()
+
+        binding.sliderDxfAlpha.addOnChangeListener { _, value, _ ->
+            binding.canvasView.dxfAlpha = value.toInt()
+        }
 
         // 恢復 DXF 底圖快取
         currentDxfData?.let { data ->
@@ -190,6 +207,29 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 dxfImportLauncher.launch("*/*")
                 true
             }
+            R.id.menu_dxf_layers -> {
+                showDxfLayersDialog()
+                true
+            }
+            R.id.menu_playback -> {
+                item.isChecked = !item.isChecked
+                binding.canvasView.showPlayback = item.isChecked
+                binding.cardPlayback.visibility = if (item.isChecked) android.view.View.VISIBLE else android.view.View.GONE
+                if (!item.isChecked) stopPlayback()
+                showSnackbar(if (item.isChecked) "已開啟軌跡回放" else "已關閉軌跡回放")
+                true
+            }
+            R.id.menu_baseline_list -> {
+                val a1 = baselineA1; val a2 = baselineA2
+                if (a1 == null || a2 == null) { showSnackbar("尚未設定基準線"); return true }
+                showBaselineListDialog(a1, a2)
+                true
+            }
+            R.id.menu_dxf_realign -> {
+                val data = currentDxfData ?: run { showSnackbar("尚未載入底圖"); return true }
+                showDxfAlignDialog(data, snap1 = presetSnap1, snap2 = presetSnap2)
+                true
+            }
             R.id.menu_clear_dxf -> {
                 pendingDxfData = null; currentDxfData = null
                 binding.canvasView.clearDxf()
@@ -203,7 +243,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 binding.canvasView.dxfTapMode = newMode
                 // Ensure snap mode is off
                 invalidateOptionsMenu()
-                showSnackbar(if (item.isChecked) "DXF 查詢模式：點選圖元查看資訊" else "已關閉 DXF 查詢")
+                showSnackbar(if (item.isChecked) "CAD 查詢模式：點選圖元查看資訊" else "已關閉 CAD 查詢")
                 true
             }
             R.id.menu_dxf_snap -> {
@@ -211,7 +251,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val newMode = if (item.isChecked) DxfTapMode.SNAP else DxfTapMode.NONE
                 binding.canvasView.dxfTapMode = newMode
                 invalidateOptionsMenu()
-                showSnackbar(if (item.isChecked) "捕捉模式：點選端點/交點/圓心" else "已關閉捕捉模式")
+                showSnackbar(if (item.isChecked) "CAD 放樣模式：點選端點/交點/圓心" else "已關閉放樣模式")
                 true
             }
             R.id.menu_dxf_measure -> {
@@ -219,7 +259,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val newMode = if (item.isChecked) DxfTapMode.MEASURE else DxfTapMode.NONE
                 binding.canvasView.dxfTapMode = newMode
                 invalidateOptionsMenu()
-                showSnackbar(if (item.isChecked) "量測模式：連續點選捕捉點，完成後查看結果" else "已關閉量測模式")
+                showSnackbar(if (item.isChecked) "CAD 量測模式：連續點選捕捉點，完成後查看結果" else "已關閉量測模式")
                 true
             }
             R.id.menu_dxf_measure_result -> {
@@ -237,6 +277,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             R.id.menu_dxf_measure_clear -> {
                 binding.canvasView.clearMeasurePoints()
+                binding.canvasView.setSelectedSnapPoints(emptyList()) // 同步清除視覺標記
                 invalidateOptionsMenu()
                 showSnackbar("量測點已全部清除")
                 true
@@ -254,6 +295,15 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 binding.canvasView.clearRelativePoints()
                 invalidateOptionsMenu()
                 showSnackbar("基準點已清除")
+                true
+            }
+            R.id.menu_dxf_batch_list -> {
+                if (selectedDxfSnaps.isEmpty()) showSnackbar("尚未選取任何 DXF 捕捉點")
+                else showDxfBatchStakeoutDialog()
+                true
+            }
+            R.id.menu_help -> {
+                startActivity(android.content.Intent(this, HelpActivity::class.java))
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -304,14 +354,76 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             showSnackbar("等角視圖（預設）")
         }
 
+        setupPlaybackControls()
+
         binding.btnStopStakeout.setOnClickListener {
-            stakeoutTarget = null
-            baselineP1 = null
-            baselineP2 = null
-            binding.canvasView.setBaseline(null, null)
-            stakeoutSheet.state = BottomSheetBehavior.STATE_HIDDEN
-            binding.canvasView.clearSelection()
+            stopStakeout()
         }
+
+        binding.btnNextStakeout.setOnClickListener {
+            if (currentStakeoutIndex < stakeoutTargets.size - 1) {
+                currentStakeoutIndex++
+                updateBatchStakeoutUI()
+            } else {
+                showSnackbar("已到達最後一個放樣點")
+            }
+        }
+
+        binding.btnPrevStakeout.setOnClickListener {
+            if (currentStakeoutIndex > 0) {
+                currentStakeoutIndex--
+                updateBatchStakeoutUI()
+            }
+        }
+
+        binding.btnShareStakeout.setOnClickListener {
+            shareStakeoutGuidance()
+        }
+    }
+
+    private fun setupPlaybackControls() {
+        binding.sliderPlayback.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) {
+                binding.canvasView.playbackProgress = value
+                binding.tvPlaybackInfo.text = "${(value * 100).toInt()}%"
+            }
+        }
+
+        binding.btnPlayPause.setOnClickListener {
+            if (isPlaying) pausePlayback() else startPlayback()
+        }
+    }
+
+    private fun startPlayback() {
+        isPlaying = true
+        binding.btnPlayPause.setIconResource(R.drawable.ic_pause)
+        val currentProgress = binding.canvasView.playbackProgress
+        val startFrom = if (currentProgress >= 1f) 0f else currentProgress
+        
+        playbackJob = lifecycleScope.launch {
+            var p = startFrom
+            while (p < 1f && isPlaying) {
+                p += 0.01f
+                binding.canvasView.playbackProgress = p
+                binding.sliderPlayback.value = p
+                binding.tvPlaybackInfo.text = "${(p * 100).toInt()}%"
+                kotlinx.coroutines.delay(50)
+            }
+            if (p >= 1f) pausePlayback()
+        }
+    }
+
+    private fun pausePlayback() {
+        isPlaying = false
+        playbackJob?.cancel()
+        binding.btnPlayPause.setIconResource(R.drawable.ic_play)
+    }
+
+    private fun stopPlayback() {
+        pausePlayback()
+        binding.canvasView.playbackProgress = 1.0f
+        binding.sliderPlayback.value = 1.0f
+        binding.tvPlaybackInfo.text = "100%"
     }
 
     private fun updateCalcButton(selected: List<PointEntity>) {
@@ -327,8 +439,8 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (selected.size == 1) {
                 append("【單點資訊】\n")
                 append("點號：${selected[0].pointName}\n")
-                append("座標：E=${String.format("%.3f", selected[0].easting)}, N=${String.format("%.3f", selected[0].northing)}\n")
-                append("高程：Z=${String.format("%.3f", selected[0].elevation)}")
+                append("座標：E=${String.format("%.3f", selected[0].easting ?: 0.0)}, N=${String.format("%.3f", selected[0].northing ?: 0.0)}\n")
+                append("高程：Z=${String.format("%.3f", selected[0].elevation ?: 0.0)}")
                 if (elevationBase != null) {
                     val dz = (selected[0].elevation ?: 0.0) - (elevationBase!!.elevation ?: 0.0)
                     append("\n與基準高差：${String.format("%+.3f", dz)} m")
@@ -347,7 +459,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 append("方位角：${String.format("%.4f", azimuth ?: 0.0)}°\n")
                 append("高差：${String.format("%+.3f", (p2.elevation ?: 0.0) - (p1.elevation ?: 0.0))} m")
                 
-                if (baselineP1?.id == p1.id && baselineP2?.id == p2.id) {
+                if (baselineA1?.name == p1.pointName && baselineA2?.name == p2.pointName) {
                     append("\n[已設為目前基準線]")
                 }
             } else if (selected.size >= 3) {
@@ -382,13 +494,13 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 binding.canvasView.clearSelection()
             }
         
-        if (elevationBase != null || baselineP1 != null) {
+        if (elevationBase != null || baselineA1 != null) {
             builder.setNeutralButton("取消基準/基線") { _, _ ->
                 elevationBase = null
-                baselineP1 = null
-                baselineP2 = null
+                baselineA1 = null
+                baselineA2 = null
                 binding.canvasView.setElevationBase(null)
-                binding.canvasView.setBaseline(null, null)
+                binding.canvasView.setBaseline(null as BaselineAnchor?, null)
                 binding.canvasView.clearSelection()
                 showSnackbar("已取消所有基準設定")
             }
@@ -401,20 +513,21 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 showSnackbar("已將 ${selected[0].pointName} 設為零點基準")
             }
             builder.setNegativeButton("開始放樣") { _, _ ->
-                startStakeout(selected[0])
+                startStakeout(listOf(selected[0]))
             }
-        } else if (selected.size == 2) {
-            builder.setPositiveButton("設為基準線") { _, _ ->
-                baselineP1 = selected[0]
-                baselineP2 = selected[1]
-                binding.canvasView.setBaseline(baselineP1, baselineP2)
-                showSnackbar("基準線已設定：${baselineP1!!.pointName} -> ${baselineP2!!.pointName}")
+        } else if (selected.size >= 2) {
+            if (selected.size == 2) {
+                builder.setPositiveButton("設為基準線") { _, _ ->
+                    baselineA1 = BaselineAnchor.from(selected[0])
+                    baselineA2 = BaselineAnchor.from(selected[1])
+                    binding.canvasView.setBaseline(baselineA1, baselineA2)
+                    showSnackbar("基準線已設定：${baselineA1!!.name} -> ${baselineA2!!.name}")
+                }
             }
-            builder.setNegativeButton("顯示剖面圖") { _, _ ->
-                showProfileDialog(selected)
+            builder.setNegativeButton("批次放樣") { _, _ ->
+                startStakeout(selected)
             }
-        } else if (selected.size >= 3) {
-            builder.setNegativeButton("顯示剖面圖") { _, _ ->
+            builder.setNeutralButton("顯示剖面圖") { _, _ ->
                 showProfileDialog(selected)
             }
         }
@@ -422,11 +535,48 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         builder.show()
     }
 
-    private fun startStakeout(target: PointEntity) {
-        stakeoutTarget = target
-        binding.tvStakeoutTarget.text = "正在放樣：${target.pointName}"
+    private fun startStakeout(targets: List<PointEntity>) {
+        if (targets.isEmpty()) return
+        stakeoutTargets = targets
+        currentStakeoutIndex = 0
+        updateBatchStakeoutUI()
         stakeoutSheet.state = BottomSheetBehavior.STATE_EXPANDED
-        showSnackbar("已進入放樣模式，等待最新測量值…")
+        showSnackbar(if (targets.size > 1) "已進入批次放樣模式 (共 ${targets.size} 點)" else "已進入放樣模式")
+    }
+
+    private fun updateBatchStakeoutUI() {
+        if (currentStakeoutIndex !in stakeoutTargets.indices) return
+        val target = stakeoutTargets[currentStakeoutIndex]
+        stakeoutTarget = target
+        binding.canvasView.setStakeoutTarget(target)
+        binding.tvStakeoutTarget.text = "正在放樣：${target.pointName}"
+        
+        if (stakeoutTargets.size > 1) {
+            binding.tvStakeoutProgress.visibility = android.view.View.VISIBLE
+            binding.tvStakeoutProgress.text = "(${currentStakeoutIndex + 1}/${stakeoutTargets.size})"
+            binding.layoutBatchControls.visibility = android.view.View.VISIBLE
+        } else {
+            binding.tvStakeoutProgress.visibility = android.view.View.GONE
+            binding.layoutBatchControls.visibility = android.view.View.GONE
+        }
+        
+        // 自動將地圖中心對準放樣點
+        binding.canvasView.centerOnPoint(target)
+    }
+
+    private fun stopStakeout() {
+        stakeoutTarget = null
+        stakeoutTargets = emptyList()
+        currentStakeoutIndex = 0
+        lastGuidance = null
+        binding.canvasView.setStakeoutTarget(null)
+        baselineA1 = null
+        baselineA2 = null
+        binding.canvasView.setBaseline(null as BaselineAnchor?, null)
+        stakeoutSheet.state = BottomSheetBehavior.STATE_HIDDEN
+        binding.canvasView.clearSelection()
+        binding.tvStakeoutProgress.visibility = android.view.View.GONE
+        binding.layoutBatchControls.visibility = android.view.View.GONE
     }
 
     private fun showProfileDialog(selected: List<PointEntity>) {
@@ -440,6 +590,15 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun observeData() {
+        lifecycleScope.launch {
+            viewModel.dxfLoadedEvent.collect {
+                currentDxfData?.let { data ->
+                    binding.canvasView.setDxf(data, currentDxfTransform)
+                    binding.canvasView.autoFit()
+                    invalidateOptionsMenu()
+                }
+            }
+        }
         lifecycleScope.launch {
             viewModel.currentPoints.collectLatest { points ->
                 binding.canvasView.setPoints(points)
@@ -464,10 +623,13 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun updateStakeoutGuidance(current: PointEntity, target: PointEntity) {
         val guidance = StakeoutCalculator.getGuidance(current, target) ?: return
+        lastGuidance = guidance
         val elevationOnly = binding.checkElevationOnly.isChecked
         
         binding.tvDistDelta.text = "距離目標：${String.format("%.3f", guidance.distance2D)} m"
-        binding.tvHeightDelta.text = "填挖：${String.format("%+.3f", guidance.deltaZ)} m"
+        
+        val zIcon = if (guidance.deltaZ > 0.005) " 🔼" else if (guidance.deltaZ < -0.005) " 🔽" else " ✅"
+        binding.tvHeightDelta.text = "填挖：${String.format("%+.3f", guidance.deltaZ)} m$zIcon"
         
         // 如果是「僅提示填挖」，可以弱化平面導引 (例如隱藏箭頭或變色)
         if (elevationOnly) {
@@ -485,6 +647,13 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (guidance.distance2D < 0.05) {
             binding.tvDistDelta.setTextColor(getColor(R.color.status_connected))
             binding.imgDirection.setColorFilter(getColor(R.color.status_connected))
+            
+            // 批次模式自動跳轉：若距離小於 5cm 且還有下一點
+            if (stakeoutTargets.size > 1 && currentStakeoutIndex < stakeoutTargets.size - 1) {
+                currentStakeoutIndex++
+                updateBatchStakeoutUI()
+                showSnackbar("已到達目標範圍，自動切換至下一點")
+            }
         } else {
             binding.tvDistDelta.setTextColor(getColor(R.color.status_connecting))
             binding.imgDirection.setColorFilter(getColor(R.color.status_connecting))
@@ -493,6 +662,47 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // 語音導引 (每 5 秒播報一次，或是當距離變化大時)
         // 這裡先簡單實現，之後可以加頻率控制
         tts?.speak(StakeoutCalculator.getVoiceCommand(guidance, elevationOnly), TextToSpeech.QUEUE_FLUSH, null, null)
+    }
+
+    private fun shareStakeoutGuidance() {
+        val target = stakeoutTarget ?: return
+        val guidance = lastGuidance ?: return
+        
+        val zIcon = if (guidance.deltaZ > 0.005) "🔼 填方" else if (guidance.deltaZ < -0.005) "🔽 挖方" else "✅ 達標"
+        
+        val nStr = if (guidance.deltaN > 0.01) "N ${String.format("%.2f", guidance.deltaN)}m" 
+                   else if (guidance.deltaN < -0.01) "S ${String.format("%.2f", kotlin.math.abs(guidance.deltaN))}m" 
+                   else "-"
+        val eStr = if (guidance.deltaE > 0.01) "E ${String.format("%.2f", guidance.deltaE)}m" 
+                   else if (guidance.deltaE < -0.01) "W ${String.format("%.2f", kotlin.math.abs(guidance.deltaE))}m" 
+                   else "-"
+
+        // 建立簡易方位圖示
+        val grid = buildString {
+            append("      [ ${if(guidance.deltaN > 0.01) "↑" else " "} ]\n")
+            append("[ ${if(guidance.deltaE < -0.01) "←" else " "} ]  🎯  [ ${if(guidance.deltaE > 0.01) "→" else " "} ]\n")
+            append("      [ ${if(guidance.deltaN < -0.01) "↓" else " "} ]\n")
+        }
+
+        val text = buildString {
+            append("【放樣導引資訊】\n")
+            append("🎯 目標點：${target.pointName}\n")
+            append("📏 距離：${String.format("%.3f", guidance.distance2D)} m\n")
+            append("📐 高程：$zIcon (${String.format("%+.3f", guidance.deltaZ)} m)\n")
+            append("────────────────\n")
+            append("🧭 移動建議：\n")
+            append(grid)
+            append("北(N)/南(S)：$nStr\n")
+            append("東(E)/西(W)：$eStr\n")
+            append("────────────────\n")
+            append("生成時間：${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
+        }
+
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_TEXT, text)
+        }
+        startActivity(android.content.Intent.createChooser(intent, "分享導引資訊"))
     }
 
     private fun showNoteEditDialog(pt: PointEntity) {
@@ -520,15 +730,20 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onPrepareOptionsMenu(menu: android.view.Menu): Boolean {
         val mode = binding.canvasView.dxfTapMode
+        menu.findItem(R.id.menu_playback)?.isChecked     = binding.canvasView.showPlayback
         menu.findItem(R.id.menu_dxf_query)?.isChecked   = (mode == DxfTapMode.QUERY)
         menu.findItem(R.id.menu_dxf_snap)?.isChecked    = (mode == DxfTapMode.SNAP)
         menu.findItem(R.id.menu_dxf_measure)?.isChecked   = (mode == DxfTapMode.MEASURE)
         menu.findItem(R.id.menu_dxf_relative)?.isChecked = (mode == DxfTapMode.RELATIVE)
         val hasDxf = currentDxfData != null
+        menu.findItem(R.id.menu_dxf_layers)?.isEnabled         = hasDxf
         menu.findItem(R.id.menu_dxf_query)?.isEnabled          = hasDxf
         menu.findItem(R.id.menu_dxf_snap)?.isEnabled           = hasDxf
         menu.findItem(R.id.menu_dxf_measure)?.isEnabled        = hasDxf
         menu.findItem(R.id.menu_dxf_relative)?.isEnabled       = hasDxf
+        menu.findItem(R.id.menu_dxf_batch_list)?.isEnabled     = selectedDxfSnaps.isNotEmpty()
+        menu.findItem(R.id.menu_baseline_list)?.isEnabled      = (baselineA1 != null && baselineA2 != null)
+        menu.findItem(R.id.menu_dxf_realign)?.isEnabled        = hasDxf
         menu.findItem(R.id.menu_clear_dxf)?.isEnabled          = hasDxf
         val hasMeasure = binding.canvasView.getMeasurePoints().isNotEmpty()
         menu.findItem(R.id.menu_dxf_measure_result)?.isEnabled = hasMeasure
@@ -544,9 +759,16 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             binding.canvasView.setDxf(data, DxfTransform.IDENTITY)
             binding.canvasView.autoFit()
             invalidateOptionsMenu()
+            // 如果是真實座標且有 URI，則直接存入專案
+            lastImportedUri?.let { viewModel.saveDxfToProject(it, DxfTransform.IDENTITY) }
             showSnackbar("底圖載入成功（TWD97 真實世界座標，${data.entities.size} 個圖元）")
         } else {
             pendingDxfData = data
+            // Show DXF in local coords immediately so user can see building plan and snap reference points
+            currentDxfTransform = DxfTransform.IDENTITY
+            binding.canvasView.setDxf(data, DxfTransform.IDENTITY)
+            binding.canvasView.autoFit()
+            invalidateOptionsMenu()
             showDxfAlignDialog(data)
         }
     }
@@ -612,10 +834,20 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 binding.canvasView.setDxf(data, transform)
                 binding.canvasView.autoFit()
                 invalidateOptionsMenu()
+                
+                // 持久化到專案中
+                lastImportedUri?.let {
+                    viewModel.saveDxfToProject(it, transform)
+                } ?: run {
+                    viewModel.updateDxfTransform(transform)
+                }
+
                 presetSnap1 = null; presetSnap2 = null
                 showSnackbar("底圖對齊完成（${data.entities.size} 個圖元）")
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton("取消") { _, _ ->
+                showSnackbar("底圖已載入（本地座標），可從選單重新設定對齊")
+            }
             .show()
     }
 
@@ -765,7 +997,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
 
         MaterialAlertDialogBuilder(this)
-            .setTitle("DXF 量測結果（${n} 點）")
+            .setTitle("CAD 量測結果（${n} 點）")
             .setMessage(sb.toString())
             .setPositiveButton("關閉", null)
             .setNeutralButton("清除量測") { _, _ ->
@@ -850,12 +1082,48 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     if (entity.vertices.size <= 10) append(segSb)
                 }
             }
+            is DxfEntity.Point -> {
+                val (e, n) = tf.toWorld(entity.x, entity.y)
+                "點  [圖層: ${entity.layer}]" to buildString {
+                    append("座標  E=${String.format("%.3f", e)}, N=${String.format("%.3f", n)}")
+                }
+            }
+            is DxfEntity.Text -> {
+                val (e, n) = tf.toWorld(entity.x, entity.y)
+                "文字  [圖層: ${entity.layer}]" to buildString {
+                    append("內容：${entity.text}\n")
+                    append("高度：${String.format("%.2f", entity.height * tf.scale)} m\n")
+                    append("旋轉：${String.format("%.2f", entity.rotation)}°\n")
+                    append("插入點  E=${String.format("%.3f", e)}, N=${String.format("%.3f", n)}")
+                }
+            }
+            is DxfEntity.Ellipse -> {
+                val (ce, cn) = tf.toWorld(entity.cx, entity.cy)
+                val majorLen = sqrt(entity.mx * entity.mx + entity.my * entity.my) * tf.scale
+                "橢圓  [圖層: ${entity.layer}]" to buildString {
+                    append("長軸：${String.format("%.4f", majorLen * 2)} m\n")
+                    append("短軸：${String.format("%.4f", majorLen * entity.ratio * 2)} m\n")
+                    append("中心  E=${String.format("%.3f", ce)}, N=${String.format("%.3f", cn)}")
+                }
+            }
+            else -> "未支援圖元" to "此類型圖元 (${entity::class.simpleName}) 尚未支援詳細資訊顯示"
         }
         MaterialAlertDialogBuilder(this)
             .setTitle("DXF 圖元資訊 — $title")
             .setMessage(message)
             .setPositiveButton("關閉", null)
             .show()
+    }
+
+    private sealed class DxfSnapAction {
+        object Stakeout : DxfSnapAction()
+        object BatchToggle : DxfSnapAction()
+        object Align1 : DxfSnapAction()
+        object Align2 : DxfSnapAction()
+        object BaselineP1 : DxfSnapAction()
+        object BaselineP2 : DxfSnapAction()
+        object ClearBaseline : DxfSnapAction()
+        object Dismiss : DxfSnapAction()
     }
 
     private fun showDxfSnapDialog(snap: DxfSnapPoint) {
@@ -865,25 +1133,170 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             SnapType.CENTER       -> "圓心"
             SnapType.INTERSECTION -> "交點"
         }
-        val msg = buildString {
-            append("類型：$typeLabel\n")
-            append("DXF 座標：X=${String.format("%.4f", snap.dxfX)}, Y=${String.format("%.4f", snap.dxfY)}\n")
-            append("世界座標：E=${String.format("%.3f", snap.worldE)}, N=${String.format("%.3f", snap.worldN)}")
+        
+        // 將資訊放在標題，避免與 setItems 衝突
+        val title = "捕捉點：$typeLabel\nE=${String.format("%.3f", snap.worldE)}, N=${String.format("%.3f", snap.worldN)}"
+        
+        val isAlreadySelected = selectedDxfSnaps.any { it.worldE == snap.worldE && it.worldN == snap.worldN }
+        val hasBaseline = baselineA1 != null || baselineA2 != null
+
+        val actions = mutableListOf<Pair<String, DxfSnapAction>>().apply {
+            add("🎯 加入放樣清單（立即導引）"                             to DxfSnapAction.Stakeout)
+            add((if (isAlreadySelected) "➖ 移除批次選取" else "➕ 加入批次選取（稍後放樣）") to DxfSnapAction.BatchToggle)
+            add("📍 設為對齊錨點 1"                                      to DxfSnapAction.Align1)
+            add("📍 設為對齊錨點 2"                                      to DxfSnapAction.Align2)
+            add("📏 設為基準線起點 (P1)"                                  to DxfSnapAction.BaselineP1)
+            add("📏 設為基準線終點 (P2)"                                  to DxfSnapAction.BaselineP2)
+            if (hasBaseline) add("🗑 清除基準線"                          to DxfSnapAction.ClearBaseline)
+            add("❌ 關閉"                                                 to DxfSnapAction.Dismiss)
         }
+
         MaterialAlertDialogBuilder(this)
-            .setTitle("捕捉點")
-            .setMessage(msg)
-            .setNeutralButton("設為錨點 1") { _, _ ->
-                presetSnap1 = snap
-                currentDxfData?.let { showDxfAlignDialog(it, snap1 = presetSnap1, snap2 = presetSnap2) }
-                    ?: showSnackbar("尚未載入底圖")
+            .setTitle(title)
+            .setItems(actions.map { it.first }.toTypedArray()) { dialog, which ->
+                when (actions[which].second) {
+                    DxfSnapAction.Stakeout -> {
+                        startStakeout(listOf(snapToPointEntity(snap)))
+                    }
+                    DxfSnapAction.BatchToggle -> {
+                        if (isAlreadySelected) {
+                            selectedDxfSnaps.removeAll { it.worldE == snap.worldE && it.worldN == snap.worldN }
+                            showSnackbar("已從清單移除")
+                        } else {
+                            selectedDxfSnaps.add(snap)
+                            showSnackbar("已加入選取清單（共 ${selectedDxfSnaps.size} 點）")
+                        }
+                        binding.canvasView.setSelectedSnapPoints(selectedDxfSnaps)
+                        invalidateOptionsMenu()
+                    }
+                    DxfSnapAction.Align1 -> {
+                        presetSnap1 = snap
+                        currentDxfData?.let { showDxfAlignDialog(it, snap1 = presetSnap1, snap2 = presetSnap2) }
+                            ?: showSnackbar("尚未載入底圖")
+                    }
+                    DxfSnapAction.Align2 -> {
+                        presetSnap2 = snap
+                        currentDxfData?.let { showDxfAlignDialog(it, snap1 = presetSnap1, snap2 = presetSnap2) }
+                            ?: showSnackbar("尚未載入底圖")
+                    }
+                    DxfSnapAction.BaselineP1 -> {
+                        baselineA1 = BaselineAnchor("${typeLabel}(${String.format("%.3f", snap.worldE)},${String.format("%.3f", snap.worldN)})", snap.worldE, snap.worldN)
+                        binding.canvasView.setBaseline(baselineA1, baselineA2)
+                        showSnackbar(if (baselineA2 != null) "基準線已更新：P1=${baselineA1!!.name}" else "P1 已設定，請再點選基準線終點 (P2)")
+                        invalidateOptionsMenu()
+                    }
+                    DxfSnapAction.BaselineP2 -> {
+                        baselineA2 = BaselineAnchor("${typeLabel}(${String.format("%.3f", snap.worldE)},${String.format("%.3f", snap.worldN)})", snap.worldE, snap.worldN)
+                        binding.canvasView.setBaseline(baselineA1, baselineA2)
+                        showSnackbar(if (baselineA1 != null) "基準線已更新：P2=${baselineA2!!.name}" else "P2 已設定，請再點選基準線起點 (P1)")
+                        invalidateOptionsMenu()
+                    }
+                    DxfSnapAction.ClearBaseline -> {
+                        baselineA1 = null
+                        baselineA2 = null
+                        binding.canvasView.setBaseline(null as BaselineAnchor?, null)
+                        invalidateOptionsMenu()
+                        showSnackbar("基準線已清除")
+                    }
+                    DxfSnapAction.Dismiss -> dialog.dismiss()
+                }
             }
-            .setNegativeButton("設為錨點 2") { _, _ ->
-                presetSnap2 = snap
-                currentDxfData?.let { showDxfAlignDialog(it, snap1 = presetSnap1, snap2 = presetSnap2) }
-                    ?: showSnackbar("尚未載入底圖")
+            .show()
+    }
+
+    private fun snapToPointEntity(snap: DxfSnapPoint): PointEntity {
+        val typeLabel = when (snap.type) {
+            SnapType.ENDPOINT     -> "端點"
+            SnapType.MIDPOINT     -> "中點"
+            SnapType.CENTER       -> "圓心"
+            SnapType.INTERSECTION -> "交點"
+        }
+        return PointEntity(
+            id = 0,
+            projectId = viewModel.currentProject.value?.id ?: 0L,
+            pointName = snap.label.takeIf { it.isNotEmpty() && !it.startsWith("捕捉點") }
+                ?: "CAD_${typeLabel}_${String.format("%.1f", snap.worldE).takeLast(4)}",
+            easting = snap.worldE,
+            northing = snap.worldN,
+            elevation = 0.0,
+            code = "CAD",
+            horizontalAngle = null,
+            verticalAngle = null,
+            slopeDistance = null,
+            horizontalDistance = null,
+            verticalDistance = null,
+            rawData = "",
+            format = "CAD_SNAP",
+            note = "CAD 捕捉點"
+        )
+    }
+
+    private fun showDxfBatchStakeoutDialog() {
+        val items = selectedDxfSnaps.map { "${it.label} (E:${String.format("%.2f", it.worldE)}, N:${String.format("%.2f", it.worldN)})" }.toTypedArray()
+        val checked = BooleanArray(selectedDxfSnaps.size) { true }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("CAD 批次放樣選取 (${selectedDxfSnaps.size} 點)")
+            .setMultiChoiceItems(items, checked) { _, which, isChecked ->
+                checked[which] = isChecked
             }
+            .setPositiveButton("開始放樣") { _, _ ->
+                val targets = selectedDxfSnaps.filterIndexed { index, _ -> checked[index] }
+                    .map { snapToPointEntity(it) }
+                if (targets.isEmpty()) {
+                    showSnackbar("未選取任何點位")
+                } else {
+                    startStakeout(targets)
+                }
+            }
+            .setNeutralButton("清空選取") { _, _ ->
+                selectedDxfSnaps.clear()
+                binding.canvasView.setSelectedSnapPoints(emptyList())
+                invalidateOptionsMenu()
+                showSnackbar("已清空選取清單")
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showBaselineListDialog(a1: BaselineAnchor, a2: BaselineAnchor) {
+        val allPoints = viewModel.currentPoints.value
+        data class Row(val name: String, val station: Double, val offset: Double, val elevation: Double?)
+        val rows = allPoints.mapNotNull { pt ->
+            SurveyMathUtils.calculateBaselineOffset(a1, a2, pt)?.let { res ->
+                Row(pt.pointName, res.station, res.offset, pt.elevation)
+            }
+        }.sortedBy { it.station }
+
+        if (rows.isEmpty()) {
+            showSnackbar("目前無測量點可計算"); return
+        }
+
+        val baseLen = sqrt((a2.easting - a1.easting) * (a2.easting - a1.easting) +
+                           (a2.northing - a1.northing) * (a2.northing - a1.northing))
+        val header = buildString {
+            append("基準線：${a1.name} → ${a2.name}\n")
+            append("基線長：${String.format("%.3f", baseLen)} m\n\n")
+            append(String.format("%-8s %10s %10s %8s\n", "點號", "里程(m)", "偏移(m)", "高程(m)"))
+            append("─".repeat(42) + "\n")
+        }
+        val body = rows.joinToString("\n") { r ->
+            String.format("%-8s %10.3f %+10.3f %8s",
+                r.name, r.station, r.offset,
+                r.elevation?.let { String.format("%.3f", it) } ?: "—")
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("里程偏移表")
+            .setMessage(header + body)
             .setPositiveButton("關閉", null)
+            .setNeutralButton("複製") { _, _ ->
+                val clip = android.content.ClipboardManager::class.java.let {
+                    getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                }
+                clip.setPrimaryClip(android.content.ClipData.newPlainText("里程偏移表", header + body))
+                showSnackbar("已複製到剪貼簿")
+            }
             .show()
     }
 
@@ -891,5 +1304,34 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         com.google.android.material.snackbar.Snackbar.make(
             binding.root, msg, com.google.android.material.snackbar.Snackbar.LENGTH_SHORT
         ).show()
+    }
+
+    private fun showDxfLayersDialog() {
+        val data = currentDxfData ?: run { showSnackbar("尚未載入底圖"); return }
+        val allLayers = data.entities.map { it.layer }.distinct().sorted()
+        if (allLayers.isEmpty()) { showSnackbar("底圖中無圖層資訊"); return }
+
+        val checkedItems = allLayers.map { binding.canvasView.visibleLayers.contains(it) }.toBooleanArray()
+        
+        MaterialAlertDialogBuilder(this)
+            .setTitle("底圖圖層設定")
+            .setMultiChoiceItems(allLayers.toTypedArray(), checkedItems) { _, which, isChecked ->
+                checkedItems[which] = isChecked
+            }
+            .setPositiveButton("確定") { _, _ ->
+                val selectedLayers = allLayers.filterIndexed { index, _ -> checkedItems[index] }.toSet()
+                binding.canvasView.setVisibleLayers(selectedLayers)
+                showSnackbar("圖層設定已套用")
+            }
+            .setNegativeButton("取消", null)
+            .setNeutralButton("全選/全不選") { dialog, _ ->
+                val anyUnchecked = checkedItems.any { !it }
+                allLayers.indices.forEach { checkedItems[it] = anyUnchecked }
+                (dialog as androidx.appcompat.app.AlertDialog).listView.let { lv ->
+                    for (i in allLayers.indices) lv.setItemChecked(i, anyUnchecked)
+                }
+                // We don't dismiss here to allow the user to see the change
+            }
+            .show()
     }
 }

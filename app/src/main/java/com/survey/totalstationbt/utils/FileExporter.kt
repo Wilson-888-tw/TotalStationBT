@@ -70,10 +70,11 @@ object FileExporter {
                 
                 // TEXT Entity (點號)
                 if (pt.pointName.isNotEmpty()) {
+                    val safeName = pt.pointName.replace('\n', ' ').replace('\r', ' ')
                     writer.write("  0\nTEXT\n  8\nNAMES\n")
                     writer.write(" 10\n$x\n 20\n$y\n 30\n$z\n")
                     writer.write(" 40\n0.2\n") // 文字高度 0.2m
-                    writer.write("  1\n${pt.pointName}\n")
+                    writer.write("  1\n$safeName\n")
                     writer.write(" 50\n0.0\n") // 旋轉角度
                 }
             }

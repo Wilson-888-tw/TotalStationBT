@@ -79,17 +79,17 @@ class DataAdapter(
             val pt = item.parsed
             holder.tvParsed.visibility = View.VISIBLE
             holder.tvParsed.text = buildString {
-                append("[${pt.format.name}]")
-                if (pt.pointName.isNotEmpty()) append(" 點號:${pt.pointName}")
-                pt.easting?.let    { append(" E:${String.format("%.4f", it)}") }
-                pt.northing?.let   { append(" N:${String.format("%.4f", it)}") }
-                pt.elevation?.let  { append(" Z:${String.format("%.4f", it)}") }
-                if (pt.code.isNotEmpty()) append(" 編碼:${pt.code}")
+                append(pt.pointName)
+                pt.easting?.let    { append("  E:${String.format("%.3f", it)}") }
+                pt.northing?.let   { append("  N:${String.format("%.3f", it)}") }
+                pt.elevation?.let  { append("  Z:${String.format("%.3f", it)}") }
+                if (pt.code.isNotEmpty()) append("\n[${pt.code}]")
             }
             holder.indicator.setBackgroundColor(ContextCompat.getColor(ctx, R.color.status_connected))
             holder.layoutActions.visibility = View.VISIBLE
             
-            holder.btnRowPhoto.visibility = View.GONE // 移除照相功能
+            holder.btnRowPhoto.visibility = View.VISIBLE
+            holder.btnRowPhoto.setOnClickListener { onAction(Action.Photo(item)) }
             holder.btnRowShare.setOnClickListener { onAction(Action.Share(item)) }
         } else {
             holder.tvParsed.visibility = View.GONE

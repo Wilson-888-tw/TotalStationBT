@@ -10,6 +10,11 @@
             android:icon="@drawable/ic_zoom_out_map"
             app:showAsAction="always" />
         <item
+            android:id="@+id/menu_help"
+            android:title="操作說明"
+            android:icon="@drawable/ic_help"
+            app:showAsAction="always" />
+        <item
             android:id="@+id/menu_points"
             android:title="點位清單"
             android:icon="@drawable/ic_bluetooth_search"
@@ -41,24 +46,42 @@
             android:title="載入底圖 (.dxf)"
             app:showAsAction="never" />
         <item
+            android:id="@+id/menu_dxf_layers"
+            android:title="底圖圖層設定"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_playback"
+            android:title="測量軌跡回放"
+            android:checkable="true"
+            android:checked="false"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_baseline_list"
+            android:title="顯示里程偏移表"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_dxf_realign"
+            android:title="重新設定底圖對齊"
+            app:showAsAction="never" />
+        <item
             android:id="@+id/menu_clear_dxf"
             android:title="清除底圖"
             app:showAsAction="never" />
         <item
             android:id="@+id/menu_dxf_query"
-            android:title="DXF 查詢（點選圖元）"
+            android:title="CAD 查詢（點選圖元）"
             android:checkable="true"
             android:checked="false"
             app:showAsAction="never" />
         <item
             android:id="@+id/menu_dxf_snap"
-            android:title="DXF 捕捉點（端點/交點/圓心）"
+            android:title="CAD 放樣（端點/交點/圓心）"
             android:checkable="true"
             android:checked="false"
             app:showAsAction="never" />
         <item
             android:id="@+id/menu_dxf_measure"
-            android:title="DXF 量測（連續捕捉計算）"
+            android:title="CAD 量測（連續捕捉計算）"
             android:checkable="true"
             android:checked="false"
             app:showAsAction="never" />
@@ -76,13 +99,17 @@
             app:showAsAction="never" />
         <item
             android:id="@+id/menu_dxf_relative"
-            android:title="DXF 相對位置（兩點計算）"
+            android:title="放樣點與CAD選取點 (兩點計算)"
             android:checkable="true"
             android:checked="false"
             app:showAsAction="never" />
         <item
             android:id="@+id/menu_dxf_relative_clear"
             android:title="清除相對位置基準點"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_dxf_batch_list"
+            android:title="CAD 批次放樣清單"
             app:showAsAction="never" />
     </group>
 

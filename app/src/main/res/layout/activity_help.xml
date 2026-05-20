@@ -1,0 +1,375 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/md3_surface_container_high">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/appBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/md3_surface_container"
+            app:title="操作說明"
+            app:navigationIcon="?attr/homeAsUpIndicator" />
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="32dp">
+
+            <!-- ── 藍牙連線 ── -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                app:cardBackgroundColor="@color/md3_surface_container"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📡  藍牙連線"
+                        android:textColor="@color/md3_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/md3_on_surface"
+                        android:textSize="13sp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="① 手機系統設定 → 藍牙 → 掃描配對全站儀\n   Nikon Nivo 2M+  PIN 碼：0530\n\n② 返回 App → 點右上角藍牙圖示 → 選擇已配對裝置\n\n③ 狀態列變綠色「已連線」即成功\n\n④ 在全站儀按 REC，App 立即顯示點位座標\n\n支援格式：Leica GSI-8/16、Sokkia SDR33、\nNikon RAW、Topcon GTS、通用逗號/空白格式" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ── 地圖視圖 ── -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                app:cardBackgroundColor="@color/md3_surface_container"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🗺  地圖視圖操作"
+                        android:textColor="@color/md3_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/md3_on_surface"
+                        android:textSize="13sp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="手勢操作\n  單指拖曳 — 平移地圖（2D）／旋轉視角（3D）\n  雙指縮放 — 放大 / 縮小\n  雙指拖曳 — 3D 上下傾斜平移\n  點選點位 — 顯示座標與計算選單\n  長按點位 — 編輯現場備忘錄\n\n選單功能\n  縮放至全視窗 — 一鍵顯示所有點位\n  海拔色帶 — 藍（低）→ 紅（高）漸變著色\n  切換 3D 視圖 — 顯示立體高程圖\n  3D 預設視角 — 俯視 / 45° / 正面等快捷鍵\n  原始連線 — 顯示 / 隱藏連接線" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ── 點位計算 ── -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                app:cardBackgroundColor="@color/md3_surface_container"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📐  點位計算"
+                        android:textColor="@color/md3_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/md3_on_surface"
+                        android:textSize="13sp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="選取 1 個點\n  → 顯示 E / N / Z 座標\n  → 可設為「高程零點基準」（其他點顯示相對高差）\n  → 可開始「放樣導引」\n\n選取 2 個點\n  → 計算兩點距離、方位角、高差\n  → 可設為「基準線」（見基準線說明）\n  → 可顯示剖面圖\n\n選取 3 個點以上\n  → 計算各頂點內角\n  → 計算閉合周長（m）\n  → 計算閉合面積（m² 與坪）\n  → 可顯示剖面圖" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ── 放樣導引 ── -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                app:cardBackgroundColor="@color/md3_surface_container"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🎯  單點與批次放樣"
+                        android:textColor="@color/md3_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/md3_on_surface"
+                        android:textSize="13sp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="啟動放樣\n  ① 點選目標點 → 計算按鈕 → 「開始放樣」\n  ② 選取多點 → 右側側邊欄 → 「批次放樣」\n  ③ DXF 捕捉點 → 點對話框 → 「加入放樣清單」\n\n導引資訊\n  • ΔZ（填挖高差）、2D 距離、方向箭頭（指向目標）\n  • 語音導引：「向北移動 X 公尺、向東移動 Y 公尺」\n\n批次模式功能\n  • 面板顯示目前點號與進度（如 1/5）\n  • 自動對焦：切換點位時地圖自動中心對準目標\n  • 自動跳轉：實測位置進入目標 5cm 內自動切換至下一點\n  • 手動切換：點選面板左右箭頭按鈕切換目標點" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ── DXF 底圖 ── -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                app:cardBackgroundColor="@color/md3_surface_container"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📄  DXF 底圖載入與對齊"
+                        android:textColor="@color/md3_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/md3_on_surface"
+                        android:textSize="13sp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="載入\n  選單 → 「載入底圖 (.dxf)」→ 選擇檔案\n  支援：LINE、LWPOLYLINE、CIRCLE、ARC、POLYLINE\n  TWD97 真實座標 → 自動對齊，無需設定\n\n底圖設定與調整\n  • 圖層管理：選單 → 「底圖圖層設定」可選擇顯示/隱藏特定圖層\n  • 透明度：右側點位清單抽屜上方「圖層與設定」可調整底圖濃淡\n  • 重新對齊：選單 → 「重新設定底圖對齊」可修改參數\n\n兩點對齊（本地座標圖面）\n  ① 底圖匯入後系統跳出對齊設定視窗\n  ② 切換到「兩點模式」\n  ③ 輸入圖面 CAD 座標 (X, Y) 與對應現場座標 (E, N)\n  ④ 系統自動計算縮放、旋轉、平移，即時預覽\n  ⑤ 點「套用」完成" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ── DXF 捕捉 ── -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                app:cardBackgroundColor="@color/md3_surface_container"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🔍  DXF 互動模式"
+                        android:textColor="@color/md3_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/md3_on_surface"
+                        android:textSize="13sp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="查詢模式（點選圖元）\n  開啟後點選任意圖元 → 顯示圖層、尺寸、座標\n\n捕捉模式（端點 / 中點 / 圓心 / 交點）\n  開啟後點選底圖 → 自動鎖定最近特徵點\n  捕捉點對話框提供用途：\n  • 設為對齊錨點 1 / 2（帶入對齊設定）\n  • 設為基準線起點 P1 / 終點 P2\n  • 「加入放樣清單」直接啟動放樣導引\n  • 「加入批次選取」收集多個點位統一放樣\n\nDXF 多點選取放樣\n  ① 進入「捕捉模式」\n  ② 點選圖紙特徵點 → 「加入批次選取」（可連續選多點）\n  ③ 選單 → 「DXF 批次放樣清單」\n  ④ 在清單視窗勾選目標點 → 「開始放樣」\n\n量測模式\n  依序點選多個捕捉點 → 顯示各段距離與方位角\n  選單 → 顯示量測結果 / 刪除最後一點 / 全部清除\n\n相對位置（兩點計算）\n  選單 → 「放樣點與CAD選取點(兩點計算)」\n  點選第一點 A，再點第二點 B\n  → 顯示 AB 距離、方位角、高差" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ── 基準線 ── -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                app:cardBackgroundColor="@color/md3_surface_container"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📏  基準線里程與偏移"
+                        android:textColor="@color/md3_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/md3_on_surface"
+                        android:textSize="13sp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="設定方法 A（測量點）\n  點選兩個測量點 → 計算按鈕 → 「設為基準線」\n\n設定方法 B（DXF 捕捉點）\n  捕捉模式下點選底圖特徵點\n  → 「設為基準線起點 P1」\n  再點另一個特徵點\n  → 「設為基準線終點 P2」\n\n設定後效果\n  • 地圖畫橘色虛線標示基準線\n  • 每個測量點旁顯示黃色標注：\n      S:12.345  O:+2.500\n    S = 沿基準線里程（m，從 P1 起）\n    O = 垂直偏移（m，正值＝左側）\n\n里程偏移表\n  選單 → 「顯示里程偏移表」\n  列出所有點位排序，可一鍵複製到剪貼簿\n\n取消基準線\n  點任意點 → 計算按鈕 → 「取消基準/基線」" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ── 匯出 ── -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                app:cardBackgroundColor="@color/md3_surface_container"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="💾  資料匯出"
+                        android:textColor="@color/md3_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/md3_on_surface"
+                        android:textSize="13sp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="匯出 CSV\n  檔案儲存於 Downloads/TotalStationBT/\n  欄位：點號, E, N, Z, 編碼, 時間\n  UTF-8 BOM 編碼（Excel 直接開啟中文不亂碼）\n\n匯出 DXF（AutoCAD R12 格式）\n  輸出 POINT 圖元 + TEXT 點號標記\n  兩個圖層：POINTS（青色）、NAMES（白色）\n\n匯出原始資料（.txt）\n  完整儲存從全站儀接收的原始字串\n\n分享\n  匯出後可透過系統分享給 LINE、email 等\n\n注意：匯出前確認手機儲存權限已開啟" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ── 專案管理 ── -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                app:cardBackgroundColor="@color/md3_surface_container"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📁  專案管理"
+                        android:textColor="@color/md3_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/md3_on_surface"
+                        android:textSize="13sp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="選單 → 「管理專案」\n  • 新增 / 切換 / 刪除專案\n  • 每個專案獨立儲存點位資料\n\n點位備忘錄\n  長按任意點位 → 輸入現場備忘（如「偏心」「遮擋」）\n  有備忘的點位顯示橘色圓形標記\n\n點位照片\n  在點位清單中點選相機圖示 → 拍照關聯到該點位\n\n點位清單側邊欄\n  右上角清單圖示開啟側邊欄\n  可搜尋、全選、全消，控制哪些點顯示在地圖上" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ── 版本 ── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="如有問題請聯絡開發者"
+                android:textColor="@color/text_hint"
+                android:textSize="11sp"
+                android:gravity="center"
+                android:layout_marginTop="8dp" />
+
+        </LinearLayout>
+    </ScrollView>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

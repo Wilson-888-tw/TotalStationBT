@@ -50,18 +50,18 @@ class BluetoothSerialService {
     )
 
     // ── 連線 ────────────────────────────────────
-    fun connect(device: BluetoothDevice) {
+    fun connect(device: BluetoothDevice, adapter: BluetoothAdapter? = null) {
         connectJob?.cancel()
         connectJob = serviceScope.launch {
             val deviceName = try { device.name ?: "Unknown" } catch (e: SecurityException) { "Unknown" }
             _connectionState.value = ConnectionState.Connecting(deviceName)
-            
+
             try {
                 // 先關舊 socket
                 safeCloseSocket()
 
                 // 建議在連線前停止搜尋，可提高連線成功率
-                BluetoothAdapter.getDefaultAdapter()?.cancelDiscovery()
+                adapter?.cancelDiscovery()
 
                 var socket: BluetoothSocket? = null
                 

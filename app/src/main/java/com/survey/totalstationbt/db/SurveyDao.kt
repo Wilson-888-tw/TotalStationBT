@@ -16,6 +16,9 @@ interface SurveyDao {
     @Query("SELECT * FROM projects WHERE id = :projectId")
     suspend fun getProjectById(projectId: Long): ProjectEntity?
 
+    @Update
+    suspend fun updateProject(project: ProjectEntity): Int
+
     @Delete
     suspend fun deleteProject(project: ProjectEntity): Int
 

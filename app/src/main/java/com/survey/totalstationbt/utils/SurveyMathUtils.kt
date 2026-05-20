@@ -1,6 +1,7 @@
 package com.survey.totalstationbt.utils
 
 import com.survey.totalstationbt.db.PointEntity
+import com.survey.totalstationbt.model.BaselineAnchor
 import kotlin.math.*
 
 object SurveyMathUtils {
@@ -88,19 +89,22 @@ object SurveyMathUtils {
         val x1 = p1.easting ?: return null; val y1 = p1.northing ?: return null
         val x2 = p2.easting ?: return null; val y2 = p2.northing ?: return null
         val x3 = p3.easting ?: return null; val y3 = p3.northing ?: return null
+        return baselineOffsetCoords(x1, y1, x2, y2, x3, y3)
+    }
 
-        val dx = x2 - x1
-        val dy = y2 - y1
+    fun calculateBaselineOffset(b1: BaselineAnchor, b2: BaselineAnchor, pt: PointEntity): BaselineResult? {
+        val x3 = pt.easting ?: return null; val y3 = pt.northing ?: return null
+        return baselineOffsetCoords(b1.easting, b1.northing, b2.easting, b2.northing, x3, y3)
+    }
+
+    private fun baselineOffsetCoords(
+        x1: Double, y1: Double, x2: Double, y2: Double, x3: Double, y3: Double
+    ): BaselineResult? {
+        val dx = x2 - x1; val dy = y2 - y1
         val L2 = dx * dx + dy * dy
         if (L2 == 0.0) return null
-
-        // 向量 P1->P3 在 P1->P2 上的投影 (Station)
         val station = ((x3 - x1) * dx + (y3 - y1) * dy) / sqrt(L2)
-        
-        // 垂直距離 (Offset) - 使用 2D 外積判斷左右
-        // (x2-x1)(y3-y1) - (y2-y1)(x3-x1)
-        val offset = ((x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1)) / sqrt(L2)
-
+        val offset  = ((x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1)) / sqrt(L2)
         return BaselineResult(station, offset)
     }
 
