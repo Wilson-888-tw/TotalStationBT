@@ -12,6 +12,8 @@ import com.survey.totalstationbt.bluetooth.BluetoothSerialService
 import com.survey.totalstationbt.model.BluetoothDeviceInfo
 import com.survey.totalstationbt.model.ConnectionState
 import com.survey.totalstationbt.model.SurveyPoint
+import com.survey.totalstationbt.network.WifiRelayClient
+import com.survey.totalstationbt.network.WifiRelayServer
 import com.survey.totalstationbt.utils.FileExporter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -31,6 +33,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val context: Context = app.applicationContext
     val btService = BluetoothSerialService()
+    val wifiServer = WifiRelayServer()
+    val wifiClient = WifiRelayClient()
+
+    val wifiServerState: StateFlow<WifiRelayServer.State> = wifiServer.state
+    val wifiClientState: StateFlow<ConnectionState> = wifiClient.connectionState
 
     // Database
     private val database = AppDatabase.getDatabase(app)
@@ -62,12 +69,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ── 解析與存儲 ──────────────────────────────
     init {
-        // 監聽藍牙接收，並自動存入資料庫
+        // 監聽藍牙接收，自動存入資料庫，同時廣播至 WiFi 中繼
         btService.receivedLines.onEach { lines ->
             val last = lines.lastOrNull() ?: return@onEach
             val project = _currentProject.value ?: return@onEach
-            
-            // 如果是剛接收到的（時間戳很接近現在），則存入 DB
+
+            if (System.currentTimeMillis() - last.timestamp < 1000) {
+                wifiServer.broadcast(last.raw)
+                repository.insertPoint(PointEntity(
+                    projectId = project.id,
+                    pointName = last.parsed?.pointName ?: "Unknown",
+                    easting = last.parsed?.easting,
+                    northing = last.parsed?.northing,
+                    elevation = last.parsed?.elevation,
+                    code = if (last.parsed?.code?.isNotEmpty() == true) last.parsed.code else currentCode,
+                    horizontalAngle = last.parsed?.horizontalAngle,
+                    verticalAngle = last.parsed?.verticalAngle,
+                    slopeDistance = last.parsed?.slopeDistance,
+                    horizontalDistance = last.parsed?.horizontalDistance,
+                    verticalDistance = last.parsed?.verticalDistance,
+                    rawData = last.raw,
+                    format = last.parsed?.format?.name ?: "UNKNOWN"
+                ))
+            }
+        }.launchIn(viewModelScope)
+    }
+
+    init {
+        // 監聽 WiFi 中繼接收，自動存入資料庫（桿子手模式）
+        wifiClient.receivedLines.onEach { lines ->
+            val last = lines.lastOrNull() ?: return@onEach
+            val project = _currentProject.value ?: return@onEach
+
             if (System.currentTimeMillis() - last.timestamp < 1000) {
                 repository.insertPoint(PointEntity(
                     projectId = project.id,
@@ -156,6 +189,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val adapter = bluetoothAdapter ?: return
         _pairedDevices.value = BluetoothScanner.getPairedDevices(adapter)
     }
+
+    fun startWifiRelay() = wifiServer.start()
+    fun stopWifiRelay() = wifiServer.stop()
+    fun connectWifi(ip: String, port: Int) = wifiClient.connect(ip, port)
+    fun disconnectWifi() = wifiClient.disconnect()
 
     fun connectDevice(deviceInfo: BluetoothDeviceInfo) {
         val adapter = bluetoothAdapter ?: return
@@ -373,5 +411,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         super.onCleared()
         btService.destroy()
+        wifiServer.destroy()
+        wifiClient.destroy()
     }
 }

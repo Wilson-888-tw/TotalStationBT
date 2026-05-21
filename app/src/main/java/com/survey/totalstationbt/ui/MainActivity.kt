@@ -28,7 +28,13 @@ import com.survey.totalstationbt.model.ConnectionState
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import androidx.core.content.FileProvider
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.provider.MediaStore
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
+import com.survey.totalstationbt.databinding.DialogQrDisplayBinding
+import com.survey.totalstationbt.network.WifiRelayServer
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -427,6 +433,19 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(this, MapActivity::class.java))
                 true
             }
+            R.id.menu_wifi_relay -> {
+                when (viewModel.wifiServerState.value) {
+                    is WifiRelayServer.State.Running -> showQrDialog()
+                    is WifiRelayServer.State.Stopped -> {
+                        viewModel.startWifiRelay()
+                        lifecycleScope.launch {
+                            kotlinx.coroutines.delay(300)
+                            showQrDialog()
+                        }
+                    }
+                }
+                true
+            }
             R.id.menu_projects -> {
                 showProjectDialog()
                 true
@@ -529,6 +548,45 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    private fun showQrDialog() {
+        val state = viewModel.wifiServerState.value as? WifiRelayServer.State.Running ?: return
+        val dialogBinding = DialogQrDisplayBinding.inflate(layoutInflater)
+
+        val content = "tsbt://${state.ip}:${state.port}"
+        dialogBinding.tvQrIpPort.text = "${state.ip}:${state.port}"
+
+        try {
+            val bits = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, 512, 512)
+            val bmp = Bitmap.createBitmap(512, 512, Bitmap.Config.RGB_565)
+            for (x in 0 until 512) for (y in 0 until 512) {
+                bmp.setPixel(x, y, if (bits[x, y]) Color.BLACK else Color.WHITE)
+            }
+            dialogBinding.imgQrCode.setImageBitmap(bmp)
+        } catch (e: Exception) {
+            showSnackbar("QR 碼生成失敗：${e.message}")
+            viewModel.stopWifiRelay()
+            return
+        }
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setView(dialogBinding.root)
+            .setOnDismissListener { viewModel.stopWifiRelay() }
+            .create()
+
+        lifecycleScope.launch {
+            viewModel.wifiServerState.collect { s ->
+                if (!dialog.isShowing) return@collect
+                dialogBinding.tvClientCount.text = when {
+                    s is WifiRelayServer.State.Running && s.clientCount > 0 -> "已連線：${s.clientCount} 支裝置"
+                    else -> "等待連線…"
+                }
+            }
+        }
+
+        dialogBinding.btnStopRelay.setOnClickListener { dialog.dismiss() }
+        dialog.show()
     }
 
     private fun showSnackbar(msg: String) {

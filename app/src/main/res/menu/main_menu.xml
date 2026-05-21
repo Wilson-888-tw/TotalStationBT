@@ -13,6 +13,11 @@
         android:title="藍牙連線"
         android:icon="@drawable/ic_bluetooth_search"
         app:showAsAction="always" />
+    <item
+        android:id="@+id/menu_wifi_relay"
+        android:title="WiFi 中繼"
+        android:icon="@drawable/ic_share_point"
+        app:showAsAction="always" />
 
     <!-- 專案管理 -->
     <group android:id="@+id/group_project">

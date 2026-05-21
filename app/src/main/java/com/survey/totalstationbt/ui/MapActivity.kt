@@ -1,10 +1,13 @@
 package com.survey.totalstationbt.ui
 
+import android.hardware.SensorManager
 import android.os.Bundle
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.survey.totalstationbt.databinding.ActivityMapBinding
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -22,6 +25,10 @@ import com.survey.totalstationbt.utils.StakeoutCalculator
 import java.util.Locale
 
 import androidx.activity.result.contract.ActivityResultContracts
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import com.survey.totalstationbt.network.WifiRelayServer
+import com.survey.totalstationbt.model.ConnectionState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.survey.totalstationbt.model.DxfData
@@ -32,6 +39,7 @@ import com.survey.totalstationbt.model.DxfEntity
 import com.survey.totalstationbt.model.SnapType
 import com.survey.totalstationbt.parser.DxfParser
 import com.survey.totalstationbt.databinding.DialogDxfAlignBinding
+import com.survey.totalstationbt.databinding.DialogCompassCalibrationBinding
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
@@ -49,6 +57,10 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private lateinit var stakeoutSheet: BottomSheetBehavior<*>
 
+    private lateinit var compassManager: CompassManager
+    private var calibrationDialogShown = false
+    private var stakeoutCompassJob: Job? = null
+
     private var pendingDxfData: DxfData? = null
     private var currentDxfData: DxfData?
         get() = MainViewModel.cachedDxfData
@@ -59,6 +71,19 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     // Snap points pre-filled for alignment dialog
     private var presetSnap1: DxfSnapPoint? = null
     private var presetSnap2: DxfSnapPoint? = null
+
+    private val qrScanLauncher = registerForActivityResult(ScanContract()) { result ->
+        val content = result.contents ?: return@registerForActivityResult
+        if (!content.startsWith("tsbt://")) {
+            showSnackbar("QR 碼格式不符，請掃描儀器手的中繼 QR 碼")
+            return@registerForActivityResult
+        }
+        val hostPort = content.removePrefix("tsbt://").split(":")
+        val ip = hostPort.getOrNull(0) ?: return@registerForActivityResult
+        val port = hostPort.getOrNull(1)?.toIntOrNull() ?: WifiRelayServer.DEFAULT_PORT
+        viewModel.connectWifi(ip, port)
+        showSnackbar("正在連線 WiFi 中繼 $ip:$port…")
+    }
 
     private val dxfImportLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@registerForActivityResult
@@ -87,6 +112,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         binding.toolbar.setNavigationOnClickListener { finish() }
 
         tts = TextToSpeech(this, this)
+        compassManager = CompassManager(this)
         stakeoutSheet = BottomSheetBehavior.from(binding.cardStakeout).apply {
             state = BottomSheetBehavior.STATE_HIDDEN
         }
@@ -100,6 +126,22 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             binding.canvasView.setDxf(data, currentDxfTransform)
             invalidateOptionsMenu()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (compassManager.isAvailable) {
+            compassManager.start()
+            if (!calibrationDialogShown) {
+                calibrationDialogShown = true
+                showCompassCalibrationDialog()
+            }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        compassManager.stop()
     }
 
     override fun onInit(status: Int) {
@@ -157,6 +199,31 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.menu_scan_qr -> {
+                when (viewModel.wifiClientState.value) {
+                    is ConnectionState.Connected -> {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("WiFi 中繼")
+                            .setMessage("目前已連線至 WiFi 中繼，是否要中斷連線？")
+                            .setPositiveButton("中斷連線") { _, _ ->
+                                viewModel.disconnectWifi()
+                                showSnackbar("WiFi 中繼已中斷")
+                                invalidateOptionsMenu()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                    else -> {
+                        val options = ScanOptions().apply {
+                            setPrompt("請掃描儀器手手機上的 WiFi 中繼 QR 碼")
+                            setBeepEnabled(true)
+                            setOrientationLocked(false)
+                        }
+                        qrScanLauncher.launch(options)
+                    }
+                }
+                true
+            }
             R.id.menu_zoom_fit -> { binding.canvasView.autoFit(); true }
             R.id.menu_show_lines -> {
                 item.isChecked = !item.isChecked
@@ -306,11 +373,33 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         binding.btnStopStakeout.setOnClickListener {
             stakeoutTarget = null
+            stakeoutCompassJob?.cancel()
+            stakeoutCompassJob = null
             baselineP1 = null
             baselineP2 = null
             binding.canvasView.setBaseline(null, null)
             stakeoutSheet.state = BottomSheetBehavior.STATE_HIDDEN
             binding.canvasView.clearSelection()
+        }
+
+        // 三個模式互斥：勾選任一個時自動取消其他兩個
+        binding.checkNorthOnly.setOnCheckedChangeListener { _, checked ->
+            if (checked) {
+                binding.checkEastOnly.isChecked = false
+                binding.checkElevationOnly.isChecked = false
+            }
+        }
+        binding.checkEastOnly.setOnCheckedChangeListener { _, checked ->
+            if (checked) {
+                binding.checkNorthOnly.isChecked = false
+                binding.checkElevationOnly.isChecked = false
+            }
+        }
+        binding.checkElevationOnly.setOnCheckedChangeListener { _, checked ->
+            if (checked) {
+                binding.checkNorthOnly.isChecked = false
+                binding.checkEastOnly.isChecked = false
+            }
         }
     }
 
@@ -427,6 +516,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         binding.tvStakeoutTarget.text = "正在放樣：${target.pointName}"
         stakeoutSheet.state = BottomSheetBehavior.STATE_EXPANDED
         showSnackbar("已進入放樣模式，等待最新測量值…")
+        startCompassArrowUpdates()
     }
 
     private fun showProfileDialog(selected: List<PointEntity>) {
@@ -441,15 +531,35 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun observeData() {
         lifecycleScope.launch {
+            viewModel.wifiClientState.collect { state ->
+                invalidateOptionsMenu()
+                when (state) {
+                    is ConnectionState.Connected ->
+                        showSnackbar("WiFi 中繼已連線：${state.deviceName}")
+                    is ConnectionState.Error ->
+                        showSnackbar(state.message)
+                    is ConnectionState.Disconnected -> {}
+                    else -> {}
+                }
+            }
+        }
+
+        lifecycleScope.launch {
             viewModel.currentPoints.collectLatest { points ->
                 binding.canvasView.setPoints(points)
                 pointAdapter.submitPoints(points)
-                
-                // 處理放樣邏輯
+
                 val lastPoint = points.lastOrNull()
                 val target = stakeoutTarget
                 if (lastPoint != null && target != null) {
                     updateStakeoutGuidance(lastPoint, target)
+                }
+
+                // 新量測到達時，用 HA 校正羅盤偏差
+                if (lastPoint != null &&
+                    lastPoint.horizontalAngle != null &&
+                    System.currentTimeMillis() - lastPoint.timestamp < 2000) {
+                    compassManager.applyHaCalibration(lastPoint.horizontalAngle.toFloat())
                 }
 
                 // 預設全選
@@ -464,35 +574,80 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun updateStakeoutGuidance(current: PointEntity, target: PointEntity) {
         val guidance = StakeoutCalculator.getGuidance(current, target) ?: return
-        val elevationOnly = binding.checkElevationOnly.isChecked
-        
-        binding.tvDistDelta.text = "距離目標：${String.format("%.3f", guidance.distance2D)} m"
-        binding.tvHeightDelta.text = "填挖：${String.format("%+.3f", guidance.deltaZ)} m"
-        
-        // 如果是「僅提示填挖」，可以弱化平面導引 (例如隱藏箭頭或變色)
-        if (elevationOnly) {
-            binding.imgDirection.alpha = 0.3f
-            binding.tvDistDelta.alpha = 0.5f
-        } else {
-            binding.imgDirection.alpha = 1.0f
-            binding.tvDistDelta.alpha = 1.0f
-        }
+        val northOnly = binding.checkNorthOnly.isChecked
+        val eastOnly  = binding.checkEastOnly.isChecked
+        val elevOnly  = binding.checkElevationOnly.isChecked
+        val onTarget  = guidance.distance2D < 0.05
 
-        // 旋轉箭頭 (azimuth 是相對於北方的角度，ImageView 旋轉也是)
-        binding.imgDirection.rotation = guidance.directionArrow
-        
-        // 變換顏色
-        if (guidance.distance2D < 0.05) {
-            binding.tvDistDelta.setTextColor(getColor(R.color.status_connected))
-            binding.imgDirection.setColorFilter(getColor(R.color.status_connected))
-        } else {
-            binding.tvDistDelta.setTextColor(getColor(R.color.status_connecting))
-            binding.imgDirection.setColorFilter(getColor(R.color.status_connecting))
-        }
+        val planColor = if (onTarget) getColor(R.color.status_connected) else getColor(R.color.status_connecting)
+        val zColor    = if (kotlin.math.abs(guidance.deltaZ) < 0.01) getColor(R.color.status_connected)
+                        else getColor(R.color.md3_on_surface_variant)
+        val dimAlpha  = 0.25f
+        val fullAlpha = 1.0f
 
-        // 語音導引 (每 5 秒播報一次，或是當距離變化大時)
-        // 這裡先簡單實現，之後可以加頻率控制
-        tts?.speak(StakeoutCalculator.getVoiceCommand(guidance, elevationOnly), TextToSpeech.QUEUE_FLUSH, null, null)
+        // ΔN
+        binding.tvNorthDelta.text = if (guidance.deltaN >= 0) "N：+${String.format("%.3f", guidance.deltaN)}"
+                                    else "N：${String.format("%.3f", guidance.deltaN)}"
+        binding.tvNorthDelta.setTextColor(planColor)
+        binding.tvNorthDelta.alpha = if (eastOnly || elevOnly) dimAlpha else fullAlpha
+
+        // ΔE
+        binding.tvEastDelta.text = if (guidance.deltaE >= 0) "E：+${String.format("%.3f", guidance.deltaE)}"
+                                   else "E：${String.format("%.3f", guidance.deltaE)}"
+        binding.tvEastDelta.setTextColor(planColor)
+        binding.tvEastDelta.alpha = if (northOnly || elevOnly) dimAlpha else fullAlpha
+
+        // 平面距離
+        binding.tvDistDelta.text = "距離：${String.format("%.3f", guidance.distance2D)} m"
+        binding.tvDistDelta.setTextColor(planColor)
+        binding.tvDistDelta.alpha = if (elevOnly) dimAlpha else fullAlpha
+
+        // ΔZ
+        binding.tvHeightDelta.text = "Z：${String.format("%+.3f", guidance.deltaZ)} m"
+        binding.tvHeightDelta.setTextColor(zColor)
+        binding.tvHeightDelta.alpha = if (northOnly || eastOnly) dimAlpha else fullAlpha
+
+        // 箭頭顏色與透明度（旋轉由 compass job 負責）
+        binding.imgDirection.alpha = if (elevOnly) dimAlpha else fullAlpha
+        binding.imgDirection.setColorFilter(planColor)
+
+        tts?.speak(StakeoutCalculator.getVoiceCommand(guidance, elevOnly), TextToSpeech.QUEUE_FLUSH, null, null)
+    }
+
+    private fun startCompassArrowUpdates() {
+        stakeoutCompassJob?.cancel()
+        stakeoutCompassJob = lifecycleScope.launch {
+            compassManager.state.collect { compassState ->
+                val target  = stakeoutTarget ?: return@collect
+                val current = viewModel.currentPoints.value.lastOrNull() ?: return@collect
+                val guidance = StakeoutCalculator.getGuidance(current, target) ?: return@collect
+
+                // 有 HA 校正：箭頭相對手機朝向旋轉；無校正：退回格網方位角
+                val arrowRotation = if (compassState.haOffsetTimestamp > 0L) {
+                    (guidance.azimuth - compassState.correctedAzimuth + 360f) % 360f
+                } else {
+                    guidance.directionArrow
+                }
+                binding.imgDirection.rotation = arrowRotation
+
+                updateCompassStatus(compassState)
+            }
+        }
+    }
+
+    private fun updateCompassStatus(state: CompassManager.State) {
+        val (text, color) = when {
+            state.haOffsetTimestamp == 0L ->
+                "羅盤未校正（等待量測）" to getColor(R.color.md3_on_surface_variant)
+            state.haOffsetAgeSeconds < 60 ->
+                "羅盤已校正（${state.haOffsetAgeSeconds}秒前）" to getColor(R.color.status_connected)
+            state.haOffsetAgeSeconds < 180 ->
+                "已校正（${state.haOffsetAgeSeconds}秒前）建議重新量測" to getColor(R.color.status_connecting)
+            else ->
+                "羅盤校正已逾3分鐘，請重新量測" to getColor(R.color.status_error)
+        }
+        binding.tvCompassStatus.text = text
+        binding.tvCompassStatus.setTextColor(color)
     }
 
     private fun showNoteEditDialog(pt: PointEntity) {
@@ -519,6 +674,18 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onPrepareOptionsMenu(menu: android.view.Menu): Boolean {
+        // Update QR button icon: camera when disconnected, link-off when connected
+        val wifiConnected = viewModel.wifiClientState.value is ConnectionState.Connected
+        menu.findItem(R.id.menu_scan_qr)?.apply {
+            if (wifiConnected) {
+                setIcon(R.drawable.ic_wifi_off)
+                title = "中斷 WiFi 中繼"
+            } else {
+                setIcon(R.drawable.ic_camera_row)
+                title = "掃描儀器手 QR"
+            }
+        }
+
         val mode = binding.canvasView.dxfTapMode
         menu.findItem(R.id.menu_dxf_query)?.isChecked   = (mode == DxfTapMode.QUERY)
         menu.findItem(R.id.menu_dxf_snap)?.isChecked    = (mode == DxfTapMode.SNAP)
@@ -885,6 +1052,78 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             .setPositiveButton("關閉", null)
             .show()
+    }
+
+    private fun showCompassCalibrationDialog() {
+        val dialogBinding = DialogCompassCalibrationBinding.inflate(layoutInflater)
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setView(dialogBinding.root)
+            .setCancelable(false)
+            .create()
+
+        val dots = listOf(dialogBinding.dot1, dialogBinding.dot2, dialogBinding.dot3, dialogBinding.dot4)
+
+        fun updateDots(accuracy: Int) {
+            val activeCount = when (accuracy) {
+                SensorManager.SENSOR_STATUS_ACCURACY_LOW    -> 1
+                SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> 2
+                SensorManager.SENSOR_STATUS_ACCURACY_HIGH   -> 4
+                else                                        -> 0
+            }
+            val activeColor = when (accuracy) {
+                SensorManager.SENSOR_STATUS_ACCURACY_HIGH   -> getColor(R.color.status_connected)
+                SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> getColor(R.color.status_connecting)
+                SensorManager.SENSOR_STATUS_ACCURACY_LOW    -> 0xFFFF7043.toInt()
+                else                                        -> getColor(R.color.status_disconnected)
+            }
+            dots.forEachIndexed { i, dot ->
+                dot.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    if (i < activeCount) activeColor else getColor(R.color.md3_outline)
+                )
+            }
+        }
+
+        var calibrationJob: Job? = null
+        dialog.setOnDismissListener { calibrationJob?.cancel() }
+
+        calibrationJob = lifecycleScope.launch {
+            compassManager.state.collect { state ->
+                // Rotate needle to show live magnetic north
+                dialogBinding.imgCompassNeedle.rotation = state.azimuth
+
+                updateDots(state.accuracy)
+
+                when (state.accuracy) {
+                    SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> {
+                        dialogBinding.tvAccuracyLabel.text = "精度：高"
+                        dialogBinding.tvAccuracyLabel.setTextColor(getColor(R.color.status_connected))
+                        dialogBinding.tvInstruction.text = "校正完成！"
+                        dialogBinding.tvInstruction.setTextColor(getColor(R.color.status_connected))
+                        delay(1500)
+                        dialog.dismiss()
+                    }
+                    SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> {
+                        dialogBinding.tvAccuracyLabel.text = "精度：中（可繼續校正）"
+                        dialogBinding.tvAccuracyLabel.setTextColor(getColor(R.color.status_connecting))
+                        dialogBinding.tvInstruction.text = "請將手機在空中緩慢畫「∞」字型\n（翻轉旋轉，重複數次）"
+                        dialogBinding.tvInstruction.setTextColor(getColor(R.color.md3_on_surface_variant))
+                    }
+                    SensorManager.SENSOR_STATUS_ACCURACY_LOW -> {
+                        dialogBinding.tvAccuracyLabel.text = "精度：低"
+                        dialogBinding.tvAccuracyLabel.setTextColor(0xFFFF7043.toInt())
+                        dialogBinding.tvInstruction.text = "請將手機在空中緩慢畫「∞」字型\n（翻轉旋轉，重複數次）"
+                        dialogBinding.tvInstruction.setTextColor(getColor(R.color.md3_on_surface_variant))
+                    }
+                    else -> {
+                        dialogBinding.tvAccuracyLabel.text = "等待感應器…"
+                        dialogBinding.tvAccuracyLabel.setTextColor(getColor(R.color.md3_on_surface_variant))
+                    }
+                }
+            }
+        }
+
+        dialogBinding.btnSkipCalibration.setOnClickListener { dialog.dismiss() }
+        dialog.show()
     }
 
     private fun showSnackbar(msg: String) {

@@ -10,6 +10,11 @@
             android:icon="@drawable/ic_zoom_out_map"
             app:showAsAction="always" />
         <item
+            android:id="@+id/menu_scan_qr"
+            android:title="掃描儀器手 QR"
+            android:icon="@drawable/ic_camera_row"
+            app:showAsAction="always" />
+        <item
             android:id="@+id/menu_points"
             android:title="點位清單"
             android:icon="@drawable/ic_bluetooth_search"
