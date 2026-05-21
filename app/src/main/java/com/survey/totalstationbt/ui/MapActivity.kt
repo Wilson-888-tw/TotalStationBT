@@ -489,33 +489,43 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun updateStakeoutGuidance(current: PointEntity, target: PointEntity) {
         val guidance = StakeoutCalculator.getGuidance(current, target) ?: return
         val elevationOnly = binding.checkElevationOnly.isChecked
-        
-        binding.tvDistDelta.text = "距離目標：${String.format("%.3f", guidance.distance2D)} m"
-        binding.tvHeightDelta.text = "填挖：${String.format("%+.3f", guidance.deltaZ)} m"
-        
-        // 如果是「僅提示填挖」，可以弱化平面導引 (例如隱藏箭頭或變色)
-        if (elevationOnly) {
-            binding.imgDirection.alpha = 0.3f
-            binding.tvDistDelta.alpha = 0.5f
-        } else {
-            binding.imgDirection.alpha = 1.0f
-            binding.tvDistDelta.alpha = 1.0f
-        }
+        val onTarget = guidance.distance2D < 0.05
 
-        // 旋轉箭頭 (azimuth 是相對於北方的角度，ImageView 旋轉也是)
+        val planColor = if (onTarget) getColor(R.color.status_connected) else getColor(R.color.status_connecting)
+
+        // ΔN（正值往北，負值往南）
+        val nLabel = if (guidance.deltaN >= 0) "N：+${String.format("%.3f", guidance.deltaN)}"
+                     else "N：${String.format("%.3f", guidance.deltaN)}"
+        binding.tvNorthDelta.text = nLabel
+        binding.tvNorthDelta.setTextColor(planColor)
+
+        // ΔE（正值往東，負值往西）
+        val eLabel = if (guidance.deltaE >= 0) "E：+${String.format("%.3f", guidance.deltaE)}"
+                     else "E：${String.format("%.3f", guidance.deltaE)}"
+        binding.tvEastDelta.text = eLabel
+        binding.tvEastDelta.setTextColor(planColor)
+
+        // 平面距離
+        binding.tvDistDelta.text = "距離：${String.format("%.3f", guidance.distance2D)} m"
+        binding.tvDistDelta.setTextColor(planColor)
+
+        // ΔZ（正值填，負值挖）
+        val zColor = if (kotlin.math.abs(guidance.deltaZ) < 0.01) getColor(R.color.status_connected)
+                     else getColor(R.color.md3_on_surface_variant)
+        binding.tvHeightDelta.text = "Z：${String.format("%+.3f", guidance.deltaZ)} m"
+        binding.tvHeightDelta.setTextColor(zColor)
+
+        // 僅提示填挖時弱化平面導引
+        val planAlpha = if (elevationOnly) 0.3f else 1.0f
+        binding.imgDirection.alpha = planAlpha
+        binding.tvNorthDelta.alpha = planAlpha
+        binding.tvEastDelta.alpha = planAlpha
+        binding.tvDistDelta.alpha = planAlpha
+
+        // 旋轉箭頭
         binding.imgDirection.rotation = guidance.directionArrow
-        
-        // 變換顏色
-        if (guidance.distance2D < 0.05) {
-            binding.tvDistDelta.setTextColor(getColor(R.color.status_connected))
-            binding.imgDirection.setColorFilter(getColor(R.color.status_connected))
-        } else {
-            binding.tvDistDelta.setTextColor(getColor(R.color.status_connecting))
-            binding.imgDirection.setColorFilter(getColor(R.color.status_connecting))
-        }
+        binding.imgDirection.setColorFilter(planColor)
 
-        // 語音導引 (每 5 秒播報一次，或是當距離變化大時)
-        // 這裡先簡單實現，之後可以加頻率控制
         tts?.speak(StakeoutCalculator.getVoiceCommand(guidance, elevationOnly), TextToSpeech.QUEUE_FLUSH, null, null)
     }
 

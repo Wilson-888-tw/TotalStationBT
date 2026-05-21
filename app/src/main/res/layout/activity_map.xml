@@ -179,35 +179,75 @@
 
                     <ImageView
                         android:id="@+id/imgDirection"
-                        android:layout_width="60dp"
-                        android:layout_height="60dp"
-                        android:src="@drawable/ic_zoom_out_map"
+                        android:layout_width="64dp"
+                        android:layout_height="64dp"
+                        android:src="@drawable/ic_compass_needle"
                         app:tint="@color/status_connecting" />
 
+                    <!-- 2×2 差值格 -->
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical"
-                        android:layout_marginStart="16dp">
+                        android:layout_marginStart="12dp">
 
-                        <TextView
-                            android:id="@+id/tvDistDelta"
-                            android:layout_width="wrap_content"
+                        <!-- 第一列：ΔN  ΔE -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="距離目標：1.234 m"
-                            android:textColor="@color/status_connected"
-                            android:textSize="20sp"
-                            android:textStyle="bold" />
+                            android:orientation="horizontal">
 
-                        <TextView
-                            android:id="@+id/tvHeightDelta"
-                            android:layout_width="wrap_content"
+                            <TextView
+                                android:id="@+id/tvNorthDelta"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="N：---"
+                                android:textColor="@color/md3_on_surface_variant"
+                                android:textSize="15sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvEastDelta"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="E：---"
+                                android:textColor="@color/md3_on_surface_variant"
+                                android:textSize="15sp"
+                                android:textStyle="bold" />
+
+                        </LinearLayout>
+
+                        <!-- 第二列：距離  ΔZ -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="填挖：+0.050 m"
-                            android:textColor="@color/md3_on_surface_variant"
-                            android:textSize="14sp"
-                            android:layout_marginTop="2dp" />
+                            android:orientation="horizontal"
+                            android:layout_marginTop="4dp">
+
+                            <TextView
+                                android:id="@+id/tvDistDelta"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="距離：---"
+                                android:textColor="@color/status_connecting"
+                                android:textSize="15sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvHeightDelta"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="Z：---"
+                                android:textColor="@color/md3_on_surface_variant"
+                                android:textSize="15sp"
+                                android:textStyle="bold" />
+
+                        </LinearLayout>
 
                     </LinearLayout>
 
