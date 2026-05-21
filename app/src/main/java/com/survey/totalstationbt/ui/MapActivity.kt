@@ -83,7 +83,6 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val port = hostPort.getOrNull(1)?.toIntOrNull() ?: WifiRelayServer.DEFAULT_PORT
         viewModel.connectWifi(ip, port)
         showSnackbar("正在連線 WiFi 中繼 $ip:$port…")
-        observeWifiClientState()
     }
 
     private val dxfImportLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -201,12 +200,28 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
         return when (item.itemId) {
             R.id.menu_scan_qr -> {
-                val options = ScanOptions().apply {
-                    setPrompt("請掃描儀器手手機上的 WiFi 中繼 QR 碼")
-                    setBeepEnabled(true)
-                    setOrientationLocked(false)
+                when (viewModel.wifiClientState.value) {
+                    is ConnectionState.Connected -> {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("WiFi 中繼")
+                            .setMessage("目前已連線至 WiFi 中繼，是否要中斷連線？")
+                            .setPositiveButton("中斷連線") { _, _ ->
+                                viewModel.disconnectWifi()
+                                showSnackbar("WiFi 中繼已中斷")
+                                invalidateOptionsMenu()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                    else -> {
+                        val options = ScanOptions().apply {
+                            setPrompt("請掃描儀器手手機上的 WiFi 中繼 QR 碼")
+                            setBeepEnabled(true)
+                            setOrientationLocked(false)
+                        }
+                        qrScanLauncher.launch(options)
+                    }
                 }
-                qrScanLauncher.launch(options)
                 true
             }
             R.id.menu_zoom_fit -> { binding.canvasView.autoFit(); true }
@@ -516,6 +531,20 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun observeData() {
         lifecycleScope.launch {
+            viewModel.wifiClientState.collect { state ->
+                invalidateOptionsMenu()
+                when (state) {
+                    is ConnectionState.Connected ->
+                        showSnackbar("WiFi 中繼已連線：${state.deviceName}")
+                    is ConnectionState.Error ->
+                        showSnackbar(state.message)
+                    is ConnectionState.Disconnected -> {}
+                    else -> {}
+                }
+            }
+        }
+
+        lifecycleScope.launch {
             viewModel.currentPoints.collectLatest { points ->
                 binding.canvasView.setPoints(points)
                 pointAdapter.submitPoints(points)
@@ -645,6 +674,18 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onPrepareOptionsMenu(menu: android.view.Menu): Boolean {
+        // Update QR button icon: camera when disconnected, link-off when connected
+        val wifiConnected = viewModel.wifiClientState.value is ConnectionState.Connected
+        menu.findItem(R.id.menu_scan_qr)?.apply {
+            if (wifiConnected) {
+                setIcon(R.drawable.ic_wifi_off)
+                title = "中斷 WiFi 中繼"
+            } else {
+                setIcon(R.drawable.ic_camera_row)
+                title = "掃描儀器手 QR"
+            }
+        }
+
         val mode = binding.canvasView.dxfTapMode
         menu.findItem(R.id.menu_dxf_query)?.isChecked   = (mode == DxfTapMode.QUERY)
         menu.findItem(R.id.menu_dxf_snap)?.isChecked    = (mode == DxfTapMode.SNAP)
@@ -1083,20 +1124,6 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         dialogBinding.btnSkipCalibration.setOnClickListener { dialog.dismiss() }
         dialog.show()
-    }
-
-    private fun observeWifiClientState() {
-        lifecycleScope.launch {
-            viewModel.wifiClientState.collect { state ->
-                when (state) {
-                    is ConnectionState.Connected ->
-                        showSnackbar("WiFi 中繼已連線：${state.deviceName}")
-                    is ConnectionState.Error ->
-                        showSnackbar(state.message)
-                    else -> {}
-                }
-            }
-        }
     }
 
     private fun showSnackbar(msg: String) {
