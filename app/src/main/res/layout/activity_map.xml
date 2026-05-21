@@ -282,6 +282,18 @@
                         app:strokeColor="@color/md3_error" />
 
                 </LinearLayout>
+
+                <!-- 羅盤校正狀態 -->
+                <TextView
+                    android:id="@+id/tvCompassStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="羅盤未校正（等待量測）"
+                    android:textColor="@color/md3_on_surface_variant"
+                    android:textSize="11sp"
+                    android:gravity="end"
+                    android:layout_marginTop="6dp"/>
+
             </LinearLayout>
         </LinearLayout>
 

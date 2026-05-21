@@ -55,6 +55,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var compassManager: CompassManager
     private var calibrationDialogShown = false
+    private var stakeoutCompassJob: Job? = null
 
     private var pendingDxfData: DxfData? = null
     private var currentDxfData: DxfData?
@@ -330,6 +331,8 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         binding.btnStopStakeout.setOnClickListener {
             stakeoutTarget = null
+            stakeoutCompassJob?.cancel()
+            stakeoutCompassJob = null
             baselineP1 = null
             baselineP2 = null
             binding.canvasView.setBaseline(null, null)
@@ -471,6 +474,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         binding.tvStakeoutTarget.text = "正在放樣：${target.pointName}"
         stakeoutSheet.state = BottomSheetBehavior.STATE_EXPANDED
         showSnackbar("已進入放樣模式，等待最新測量值…")
+        startCompassArrowUpdates()
     }
 
     private fun showProfileDialog(selected: List<PointEntity>) {
@@ -488,12 +492,18 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             viewModel.currentPoints.collectLatest { points ->
                 binding.canvasView.setPoints(points)
                 pointAdapter.submitPoints(points)
-                
-                // 處理放樣邏輯
+
                 val lastPoint = points.lastOrNull()
                 val target = stakeoutTarget
                 if (lastPoint != null && target != null) {
                     updateStakeoutGuidance(lastPoint, target)
+                }
+
+                // 新量測到達時，用 HA 校正羅盤偏差
+                if (lastPoint != null &&
+                    lastPoint.horizontalAngle != null &&
+                    System.currentTimeMillis() - lastPoint.timestamp < 2000) {
+                    compassManager.applyHaCalibration(lastPoint.horizontalAngle.toFloat())
                 }
 
                 // 預設全選
@@ -541,12 +551,47 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         binding.tvHeightDelta.setTextColor(zColor)
         binding.tvHeightDelta.alpha = if (northOnly || eastOnly) dimAlpha else fullAlpha
 
-        // 箭頭（平面無關時遮暗）
+        // 箭頭顏色與透明度（旋轉由 compass job 負責）
         binding.imgDirection.alpha = if (elevOnly) dimAlpha else fullAlpha
-        binding.imgDirection.rotation = guidance.directionArrow
         binding.imgDirection.setColorFilter(planColor)
 
         tts?.speak(StakeoutCalculator.getVoiceCommand(guidance, elevOnly), TextToSpeech.QUEUE_FLUSH, null, null)
+    }
+
+    private fun startCompassArrowUpdates() {
+        stakeoutCompassJob?.cancel()
+        stakeoutCompassJob = lifecycleScope.launch {
+            compassManager.state.collect { compassState ->
+                val target  = stakeoutTarget ?: return@collect
+                val current = viewModel.currentPoints.value.lastOrNull() ?: return@collect
+                val guidance = StakeoutCalculator.getGuidance(current, target) ?: return@collect
+
+                // 有 HA 校正：箭頭相對手機朝向旋轉；無校正：退回格網方位角
+                val arrowRotation = if (compassState.haOffsetTimestamp > 0L) {
+                    (guidance.azimuth - compassState.correctedAzimuth + 360f) % 360f
+                } else {
+                    guidance.directionArrow
+                }
+                binding.imgDirection.rotation = arrowRotation
+
+                updateCompassStatus(compassState)
+            }
+        }
+    }
+
+    private fun updateCompassStatus(state: CompassManager.State) {
+        val (text, color) = when {
+            state.haOffsetTimestamp == 0L ->
+                "羅盤未校正（等待量測）" to getColor(R.color.md3_on_surface_variant)
+            state.haOffsetAgeSeconds < 60 ->
+                "羅盤已校正（${state.haOffsetAgeSeconds}秒前）" to getColor(R.color.status_connected)
+            state.haOffsetAgeSeconds < 180 ->
+                "已校正（${state.haOffsetAgeSeconds}秒前）建議重新量測" to getColor(R.color.status_connecting)
+            else ->
+                "羅盤校正已逾3分鐘，請重新量測" to getColor(R.color.status_error)
+        }
+        binding.tvCompassStatus.text = text
+        binding.tvCompassStatus.setTextColor(color)
     }
 
     private fun showNoteEditDialog(pt: PointEntity) {
