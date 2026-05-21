@@ -336,6 +336,26 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             stakeoutSheet.state = BottomSheetBehavior.STATE_HIDDEN
             binding.canvasView.clearSelection()
         }
+
+        // 三個模式互斥：勾選任一個時自動取消其他兩個
+        binding.checkNorthOnly.setOnCheckedChangeListener { _, checked ->
+            if (checked) {
+                binding.checkEastOnly.isChecked = false
+                binding.checkElevationOnly.isChecked = false
+            }
+        }
+        binding.checkEastOnly.setOnCheckedChangeListener { _, checked ->
+            if (checked) {
+                binding.checkNorthOnly.isChecked = false
+                binding.checkElevationOnly.isChecked = false
+            }
+        }
+        binding.checkElevationOnly.setOnCheckedChangeListener { _, checked ->
+            if (checked) {
+                binding.checkNorthOnly.isChecked = false
+                binding.checkEastOnly.isChecked = false
+            }
+        }
     }
 
     private fun updateCalcButton(selected: List<PointEntity>) {
@@ -488,45 +508,45 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun updateStakeoutGuidance(current: PointEntity, target: PointEntity) {
         val guidance = StakeoutCalculator.getGuidance(current, target) ?: return
-        val elevationOnly = binding.checkElevationOnly.isChecked
-        val onTarget = guidance.distance2D < 0.05
+        val northOnly = binding.checkNorthOnly.isChecked
+        val eastOnly  = binding.checkEastOnly.isChecked
+        val elevOnly  = binding.checkElevationOnly.isChecked
+        val onTarget  = guidance.distance2D < 0.05
 
         val planColor = if (onTarget) getColor(R.color.status_connected) else getColor(R.color.status_connecting)
+        val zColor    = if (kotlin.math.abs(guidance.deltaZ) < 0.01) getColor(R.color.status_connected)
+                        else getColor(R.color.md3_on_surface_variant)
+        val dimAlpha  = 0.25f
+        val fullAlpha = 1.0f
 
-        // ΔN（正值往北，負值往南）
-        val nLabel = if (guidance.deltaN >= 0) "N：+${String.format("%.3f", guidance.deltaN)}"
-                     else "N：${String.format("%.3f", guidance.deltaN)}"
-        binding.tvNorthDelta.text = nLabel
+        // ΔN
+        binding.tvNorthDelta.text = if (guidance.deltaN >= 0) "N：+${String.format("%.3f", guidance.deltaN)}"
+                                    else "N：${String.format("%.3f", guidance.deltaN)}"
         binding.tvNorthDelta.setTextColor(planColor)
+        binding.tvNorthDelta.alpha = if (eastOnly || elevOnly) dimAlpha else fullAlpha
 
-        // ΔE（正值往東，負值往西）
-        val eLabel = if (guidance.deltaE >= 0) "E：+${String.format("%.3f", guidance.deltaE)}"
-                     else "E：${String.format("%.3f", guidance.deltaE)}"
-        binding.tvEastDelta.text = eLabel
+        // ΔE
+        binding.tvEastDelta.text = if (guidance.deltaE >= 0) "E：+${String.format("%.3f", guidance.deltaE)}"
+                                   else "E：${String.format("%.3f", guidance.deltaE)}"
         binding.tvEastDelta.setTextColor(planColor)
+        binding.tvEastDelta.alpha = if (northOnly || elevOnly) dimAlpha else fullAlpha
 
         // 平面距離
         binding.tvDistDelta.text = "距離：${String.format("%.3f", guidance.distance2D)} m"
         binding.tvDistDelta.setTextColor(planColor)
+        binding.tvDistDelta.alpha = if (elevOnly) dimAlpha else fullAlpha
 
-        // ΔZ（正值填，負值挖）
-        val zColor = if (kotlin.math.abs(guidance.deltaZ) < 0.01) getColor(R.color.status_connected)
-                     else getColor(R.color.md3_on_surface_variant)
+        // ΔZ
         binding.tvHeightDelta.text = "Z：${String.format("%+.3f", guidance.deltaZ)} m"
         binding.tvHeightDelta.setTextColor(zColor)
+        binding.tvHeightDelta.alpha = if (northOnly || eastOnly) dimAlpha else fullAlpha
 
-        // 僅提示填挖時弱化平面導引
-        val planAlpha = if (elevationOnly) 0.3f else 1.0f
-        binding.imgDirection.alpha = planAlpha
-        binding.tvNorthDelta.alpha = planAlpha
-        binding.tvEastDelta.alpha = planAlpha
-        binding.tvDistDelta.alpha = planAlpha
-
-        // 旋轉箭頭
+        // 箭頭（平面無關時遮暗）
+        binding.imgDirection.alpha = if (elevOnly) dimAlpha else fullAlpha
         binding.imgDirection.rotation = guidance.directionArrow
         binding.imgDirection.setColorFilter(planColor)
 
-        tts?.speak(StakeoutCalculator.getVoiceCommand(guidance, elevationOnly), TextToSpeech.QUEUE_FLUSH, null, null)
+        tts?.speak(StakeoutCalculator.getVoiceCommand(guidance, elevOnly), TextToSpeech.QUEUE_FLUSH, null, null)
     }
 
     private fun showNoteEditDialog(pt: PointEntity) {

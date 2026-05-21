@@ -135,28 +135,49 @@
                 android:paddingBottom="16dp">
 
                 <!-- 標題列 -->
+                <TextView
+                    android:id="@+id/tvStakeoutTarget"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="正在放樣：PT001"
+                    android:textColor="@color/md3_on_surface"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="6dp" />
+
+                <!-- 模式選擇列（互斥） -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="12dp">
+                    android:layout_marginBottom="10dp">
 
-                    <TextView
-                        android:id="@+id/tvStakeoutTarget"
+                    <CheckBox
+                        android:id="@+id/checkNorthOnly"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="正在放樣：PT001"
-                        android:textColor="@color/md3_on_surface"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
+                        android:text="僅提示 N"
+                        android:textColor="@color/md3_on_surface_variant"
+                        android:textSize="12sp"
+                        android:buttonTint="@color/md3_secondary" />
+
+                    <CheckBox
+                        android:id="@+id/checkEastOnly"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="僅提示 E"
+                        android:textColor="@color/md3_on_surface_variant"
+                        android:textSize="12sp"
+                        android:buttonTint="@color/md3_secondary" />
 
                     <CheckBox
                         android:id="@+id/checkElevationOnly"
-                        android:layout_width="wrap_content"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:text="僅提示填挖"
+                        android:layout_weight="1"
+                        android:text="僅提示 Z"
                         android:textColor="@color/md3_on_surface_variant"
                         android:textSize="12sp"
                         android:buttonTint="@color/md3_secondary" />
