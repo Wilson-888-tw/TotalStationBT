@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:paddingTop="28dp"
+    android:paddingBottom="8dp"
+    android:paddingHorizontal="28dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="羅盤校正"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="@color/md3_on_surface"
+        android:layout_marginBottom="20dp"/>
+
+    <!-- Compass display -->
+    <FrameLayout
+        android:layout_width="144dp"
+        android:layout_height="144dp"
+        android:layout_marginBottom="20dp">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/compass_ring_bg"/>
+
+        <ImageView
+            android:id="@+id/imgCompassNeedle"
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_compass_needle"
+            android:contentDescription="compass needle"/>
+
+        <!-- N label fixed at top -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="6dp"
+            android:text="N"
+            android:textColor="#FF5252"
+            android:textSize="11sp"
+            android:textStyle="bold"/>
+
+        <!-- S label fixed at bottom -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="6dp"
+            android:text="S"
+            android:textColor="#78909C"
+            android:textSize="11sp"/>
+
+    </FrameLayout>
+
+    <!-- Accuracy dots -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <View
+            android:id="@+id/dot1"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:background="@drawable/accuracy_dot"
+            android:layout_marginHorizontal="4dp"/>
+
+        <View
+            android:id="@+id/dot2"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:background="@drawable/accuracy_dot"
+            android:layout_marginHorizontal="4dp"/>
+
+        <View
+            android:id="@+id/dot3"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:background="@drawable/accuracy_dot"
+            android:layout_marginHorizontal="4dp"/>
+
+        <View
+            android:id="@+id/dot4"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:background="@drawable/accuracy_dot"
+            android:layout_marginHorizontal="4dp"/>
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvAccuracyLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="等待感應器…"
+        android:textColor="@color/md3_on_surface_variant"
+        android:textSize="13sp"
+        android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:id="@+id/tvInstruction"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="請將手機在空中緩慢畫「∞」字型\n（翻轉旋轉，重複數次）"
+        android:textColor="@color/md3_on_surface_variant"
+        android:textSize="14sp"
+        android:lineSpacingExtra="4dp"
+        android:layout_marginBottom="4dp"/>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnSkipCalibration"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="跳過"
+        android:textColor="@color/md3_on_surface_variant"/>
+
+</LinearLayout>
