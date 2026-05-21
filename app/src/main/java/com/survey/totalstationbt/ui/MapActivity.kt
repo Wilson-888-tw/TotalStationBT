@@ -1,10 +1,13 @@
 package com.survey.totalstationbt.ui
 
+import android.hardware.SensorManager
 import android.os.Bundle
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.survey.totalstationbt.databinding.ActivityMapBinding
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -32,6 +35,7 @@ import com.survey.totalstationbt.model.DxfEntity
 import com.survey.totalstationbt.model.SnapType
 import com.survey.totalstationbt.parser.DxfParser
 import com.survey.totalstationbt.databinding.DialogDxfAlignBinding
+import com.survey.totalstationbt.databinding.DialogCompassCalibrationBinding
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
@@ -48,6 +52,9 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var baselineP2: PointEntity? = null
     private var tts: TextToSpeech? = null
     private lateinit var stakeoutSheet: BottomSheetBehavior<*>
+
+    private lateinit var compassManager: CompassManager
+    private var calibrationDialogShown = false
 
     private var pendingDxfData: DxfData? = null
     private var currentDxfData: DxfData?
@@ -87,6 +94,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         binding.toolbar.setNavigationOnClickListener { finish() }
 
         tts = TextToSpeech(this, this)
+        compassManager = CompassManager(this)
         stakeoutSheet = BottomSheetBehavior.from(binding.cardStakeout).apply {
             state = BottomSheetBehavior.STATE_HIDDEN
         }
@@ -100,6 +108,22 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             binding.canvasView.setDxf(data, currentDxfTransform)
             invalidateOptionsMenu()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (compassManager.isAvailable) {
+            compassManager.start()
+            if (!calibrationDialogShown) {
+                calibrationDialogShown = true
+                showCompassCalibrationDialog()
+            }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        compassManager.stop()
     }
 
     override fun onInit(status: Int) {
@@ -885,6 +909,78 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             .setPositiveButton("關閉", null)
             .show()
+    }
+
+    private fun showCompassCalibrationDialog() {
+        val dialogBinding = DialogCompassCalibrationBinding.inflate(layoutInflater)
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setView(dialogBinding.root)
+            .setCancelable(false)
+            .create()
+
+        val dots = listOf(dialogBinding.dot1, dialogBinding.dot2, dialogBinding.dot3, dialogBinding.dot4)
+
+        fun updateDots(accuracy: Int) {
+            val activeCount = when (accuracy) {
+                SensorManager.SENSOR_STATUS_ACCURACY_LOW    -> 1
+                SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> 2
+                SensorManager.SENSOR_STATUS_ACCURACY_HIGH   -> 4
+                else                                        -> 0
+            }
+            val activeColor = when (accuracy) {
+                SensorManager.SENSOR_STATUS_ACCURACY_HIGH   -> getColor(R.color.status_connected)
+                SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> getColor(R.color.status_connecting)
+                SensorManager.SENSOR_STATUS_ACCURACY_LOW    -> 0xFFFF7043.toInt()
+                else                                        -> getColor(R.color.status_disconnected)
+            }
+            dots.forEachIndexed { i, dot ->
+                dot.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    if (i < activeCount) activeColor else getColor(R.color.md3_outline)
+                )
+            }
+        }
+
+        var calibrationJob: Job? = null
+        dialog.setOnDismissListener { calibrationJob?.cancel() }
+
+        calibrationJob = lifecycleScope.launch {
+            compassManager.state.collect { state ->
+                // Rotate needle to show live magnetic north
+                dialogBinding.imgCompassNeedle.rotation = state.azimuth
+
+                updateDots(state.accuracy)
+
+                when (state.accuracy) {
+                    SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> {
+                        dialogBinding.tvAccuracyLabel.text = "精度：高"
+                        dialogBinding.tvAccuracyLabel.setTextColor(getColor(R.color.status_connected))
+                        dialogBinding.tvInstruction.text = "校正完成！"
+                        dialogBinding.tvInstruction.setTextColor(getColor(R.color.status_connected))
+                        delay(1500)
+                        dialog.dismiss()
+                    }
+                    SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> {
+                        dialogBinding.tvAccuracyLabel.text = "精度：中（可繼續校正）"
+                        dialogBinding.tvAccuracyLabel.setTextColor(getColor(R.color.status_connecting))
+                        dialogBinding.tvInstruction.text = "請將手機在空中緩慢畫「∞」字型\n（翻轉旋轉，重複數次）"
+                        dialogBinding.tvInstruction.setTextColor(getColor(R.color.md3_on_surface_variant))
+                    }
+                    SensorManager.SENSOR_STATUS_ACCURACY_LOW -> {
+                        dialogBinding.tvAccuracyLabel.text = "精度：低"
+                        dialogBinding.tvAccuracyLabel.setTextColor(0xFFFF7043.toInt())
+                        dialogBinding.tvInstruction.text = "請將手機在空中緩慢畫「∞」字型\n（翻轉旋轉，重複數次）"
+                        dialogBinding.tvInstruction.setTextColor(getColor(R.color.md3_on_surface_variant))
+                    }
+                    else -> {
+                        dialogBinding.tvAccuracyLabel.text = "等待感應器…"
+                        dialogBinding.tvAccuracyLabel.setTextColor(getColor(R.color.md3_on_surface_variant))
+                    }
+                }
+            }
+        }
+
+        dialogBinding.btnSkipCalibration.setOnClickListener { dialog.dismiss() }
+        dialog.show()
     }
 
     private fun showSnackbar(msg: String) {
