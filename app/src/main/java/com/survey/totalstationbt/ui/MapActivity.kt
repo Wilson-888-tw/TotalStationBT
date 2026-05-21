@@ -25,6 +25,10 @@ import com.survey.totalstationbt.utils.StakeoutCalculator
 import java.util.Locale
 
 import androidx.activity.result.contract.ActivityResultContracts
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import com.survey.totalstationbt.network.WifiRelayServer
+import com.survey.totalstationbt.model.ConnectionState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.survey.totalstationbt.model.DxfData
@@ -67,6 +71,20 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     // Snap points pre-filled for alignment dialog
     private var presetSnap1: DxfSnapPoint? = null
     private var presetSnap2: DxfSnapPoint? = null
+
+    private val qrScanLauncher = registerForActivityResult(ScanContract()) { result ->
+        val content = result.contents ?: return@registerForActivityResult
+        if (!content.startsWith("tsbt://")) {
+            showSnackbar("QR 碼格式不符，請掃描儀器手的中繼 QR 碼")
+            return@registerForActivityResult
+        }
+        val hostPort = content.removePrefix("tsbt://").split(":")
+        val ip = hostPort.getOrNull(0) ?: return@registerForActivityResult
+        val port = hostPort.getOrNull(1)?.toIntOrNull() ?: WifiRelayServer.DEFAULT_PORT
+        viewModel.connectWifi(ip, port)
+        showSnackbar("正在連線 WiFi 中繼 $ip:$port…")
+        observeWifiClientState()
+    }
 
     private val dxfImportLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@registerForActivityResult
@@ -182,6 +200,15 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.menu_scan_qr -> {
+                val options = ScanOptions().apply {
+                    setPrompt("請掃描儀器手手機上的 WiFi 中繼 QR 碼")
+                    setBeepEnabled(true)
+                    setOrientationLocked(false)
+                }
+                qrScanLauncher.launch(options)
+                true
+            }
             R.id.menu_zoom_fit -> { binding.canvasView.autoFit(); true }
             R.id.menu_show_lines -> {
                 item.isChecked = !item.isChecked
@@ -1056,6 +1083,20 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         dialogBinding.btnSkipCalibration.setOnClickListener { dialog.dismiss() }
         dialog.show()
+    }
+
+    private fun observeWifiClientState() {
+        lifecycleScope.launch {
+            viewModel.wifiClientState.collect { state ->
+                when (state) {
+                    is ConnectionState.Connected ->
+                        showSnackbar("WiFi 中繼已連線：${state.deviceName}")
+                    is ConnectionState.Error ->
+                        showSnackbar(state.message)
+                    else -> {}
+                }
+            }
+        }
     }
 
     private fun showSnackbar(msg: String) {

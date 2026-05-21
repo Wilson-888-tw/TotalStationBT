@@ -68,4 +68,10 @@ dependencies {
 
     // FileProvider
     implementation 'androidx.core:core:1.12.0'
+
+    // QR Code 生成 (ZXing core，純 Java)
+    implementation 'com.google.zxing:core:3.5.3'
+
+    // QR Code 掃描 (ZXing Android Embedded)
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
 }
