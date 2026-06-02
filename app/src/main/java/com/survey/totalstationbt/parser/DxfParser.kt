@@ -226,15 +226,23 @@ object DxfParser {
                     val loops = mutableListOf<List<PointF>>()
                     var currentLoop = mutableListOf<PointF>()
                     var curX: Double? = null
+                    // Only collect vertices between code 91 (boundary start) and
+                    // code 75/98 (post-boundary hatch style / seed points).
+                    // Without this guard the elevation-plane normal (10:0/20:0)
+                    // and seed-point coordinates are mistakenly added as vertices,
+                    // producing spurious lines to the drawing origin.
+                    var inBoundary = false
                     eg.forEach { g ->
                         when {
-                            g.code == 92 -> {
+                            g.code == 91 -> inBoundary = true
+                            g.code == 75 || g.code == 98 -> inBoundary = false
+                            g.code == 92 && inBoundary -> {
                                 if (currentLoop.isNotEmpty()) loops.add(currentLoop)
                                 currentLoop = mutableListOf()
                                 curX = null
                             }
-                            g.code == 10 -> curX = g.value.toDoubleOrNull()
-                            g.code == 20 -> {
+                            g.code == 10 && inBoundary -> curX = g.value.toDoubleOrNull()
+                            g.code == 20 && inBoundary -> {
                                 val x = curX; val y = g.value.toDoubleOrNull()
                                 if (x != null && y != null) currentLoop.add(PointF(x.toFloat(), y.toFloat()))
                                 curX = null
