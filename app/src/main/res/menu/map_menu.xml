@@ -91,4 +91,46 @@
             app:showAsAction="never" />
     </group>
 
+    <!-- 線段編輯（旋轉 / 平行拉伸） -->
+    <group android:id="@+id/group_line_edit">
+        <item
+            android:id="@+id/menu_line_edit"
+            android:title="線段編輯模式"
+            android:checkable="true"
+            android:checked="false"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_line_from_points"
+            android:title="由選取點建立線段"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_line_rotate_value"
+            android:title="旋轉線段（輸入角度）"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_line_stretch_value"
+            android:title="平行拉伸（輸入距離）"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_line_rotate_shape"
+            android:title="整體旋轉圖形（輸入角度）"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_line_info"
+            android:title="線段成果（座標／長度／方位角）"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_line_undo"
+            android:title="復原線段編輯"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_line_delete"
+            android:title="刪除選取線段"
+            app:showAsAction="never" />
+        <item
+            android:id="@+id/menu_line_clear"
+            android:title="清除全部線段"
+            app:showAsAction="never" />
+    </group>
+
 </menu>

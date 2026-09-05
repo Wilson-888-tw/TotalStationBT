@@ -14,7 +14,12 @@ import com.survey.totalstationbt.model.DxfEntity
 import com.survey.totalstationbt.model.DxfSnapPoint
 import com.survey.totalstationbt.model.DxfTapMode
 import com.survey.totalstationbt.model.DxfTransform
+import com.survey.totalstationbt.model.LineEditMode
+import com.survey.totalstationbt.model.LineShape
+import com.survey.totalstationbt.model.LineVertex
+import com.survey.totalstationbt.model.RotatePivot
 import com.survey.totalstationbt.model.SnapType
+import com.survey.totalstationbt.utils.LineEditMath
 import com.survey.totalstationbt.utils.SurveyMathUtils
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -87,6 +92,46 @@ class SurveyCanvasView @JvmOverloads constructor(
     private var relativePointB: DxfSnapPoint? = null
     var onRelativePointA: ((DxfSnapPoint) -> Unit)? = null
     var onRelativePointsPicked: ((DxfSnapPoint, DxfSnapPoint) -> Unit)? = null
+
+    // ── 線段編輯（旋轉 / 平行拉伸 / 接點搬移）─────
+    private val lineShapes = mutableListOf<LineShape>()
+    private val lineUndoStack = ArrayDeque<List<LineShape>>()
+    private val MAX_UNDO = 30
+
+    var lineEditMode: LineEditMode = LineEditMode.OFF
+        set(value) {
+            field = value
+            cancelLineDrag()
+            if (value == LineEditMode.OFF) onLineEditHud?.invoke(null) else notifySegmentSelected()
+            invalidate()
+        }
+
+    /** 旋轉軸心（起點 / 中點 / 終點） */
+    var rotatePivot: RotatePivot = RotatePivot.MIDPOINT
+        set(value) { field = value; invalidate() }
+
+    /** 旋轉時鄰線是否保持原方向（接點以交點自動延伸） */
+    var extendNeighborsOnRotate = false
+
+    /** 拖曳旋轉的角度吸附間隔（度）；0 = 不吸附 */
+    var rotateSnapDeg = 0.0
+
+    private var selShapeIdx = -1
+    private var selSegIdx = -1
+    private var selVertexIdx = -1
+
+    private var isLineDragging = false
+    private var lineDragUndoPushed = false
+    private var dragBaseShape: LineShape? = null
+    private var dragStartE = 0.0
+    private var dragStartN = 0.0
+    private var dragPivotE = 0.0
+    private var dragPivotN = 0.0
+
+    var onLineShapesChanged: ((List<LineShape>) -> Unit)? = null
+    var onLineSegmentSelected: ((LineShape?, Int) -> Unit)? = null
+    var onLineEditHud: ((String?) -> Unit)? = null
+    var onDxfEntityForEdit: ((DxfEntity) -> Unit)? = null
 
     fun clearRelativePoints() {
         relativePointA = null
@@ -233,6 +278,26 @@ class SurveyCanvasView @JvmOverloads constructor(
         color = Color.argb(140, 0, 0, 0); style = Paint.Style.FILL
     }
 
+    private val lineShapePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(255, 152, 0); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
+    }
+    private val lineShapeSelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(255, 235, 59); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
+    }
+    private val lineVertexPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; style = Paint.Style.FILL
+    }
+    private val lineVertexSelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(255, 87, 34); style = Paint.Style.FILL
+    }
+    private val linePivotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(0, 230, 118); style = Paint.Style.STROKE
+    }
+    private val lineLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(255, 235, 59); textSize = 26f; textAlign = Paint.Align.CENTER
+        setShadowLayer(4f, 0f, 0f, Color.BLACK)
+    }
+
     // ── View transforms ──────────────────────────
     private var scaleFactor = 1.0f
     private var translateX = 0.0f
@@ -271,12 +336,21 @@ class SurveyCanvasView @JvmOverloads constructor(
                         invalidate()
                     }
                 } else if (!is3DMode) {
+                    if (isLineDragging) return true   // 線段編輯拖曳中不平移地圖
                     translateX -= distanceX; translateY -= distanceY; invalidate()
                 }
                 return true
             }
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                if (!is3DMode) {
+                if (!is3DMode && lineEditMode != LineEditMode.OFF) {
+                    if (selectSegmentAt(e.x, e.y)) return true
+                    // 沒點到線段 → 提供把 DXF 圖元轉成可編輯線段
+                    hitTestDxf(e.x, e.y)?.let { entity ->
+                        onDxfEntityForEdit?.invoke(entity); return true
+                    }
+                    // 都沒命中 → 取消線段選取，仍可正常點選點位（供「由選取點建立線段」使用）
+                    clearLineSelection()
+                } else if (!is3DMode) {
                     when (dxfTapMode) {
                         DxfTapMode.QUERY -> {
                             hitTestDxf(e.x, e.y)?.let { entity ->
@@ -332,6 +406,11 @@ class SurveyCanvasView @JvmOverloads constructor(
 
     // ── Touch ────────────────────────────────────
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // 線段編輯拖曳（旋轉 / 平行拉伸 / 接點搬移）優先處理
+        if (!is3DMode && lineEditMode != LineEditMode.OFF && handleLineEditTouch(event)) {
+            if (event.actionMasked == MotionEvent.ACTION_UP) performClick()
+            return true
+        }
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
 
@@ -421,8 +500,9 @@ class SurveyCanvasView @JvmOverloads constructor(
     private fun calculateBounds() {
         val hasPoints = points.isNotEmpty()
         val hasDxf = dxfData != null && !dxfData!!.isEmpty
+        val shapeVertices = lineShapes.flatMap { it.vertices }
 
-        if (!hasPoints && !hasDxf) return
+        if (!hasPoints && !hasDxf && shapeVertices.isEmpty()) return
 
         if (hasPoints) {
             minE = points.mapNotNull { it.easting  }.minOrNull() ?: 0.0
@@ -451,6 +531,17 @@ class SurveyCanvasView @JvmOverloads constructor(
                 minN = min(minN, dMinN); maxN = max(maxN, dMaxN)
             }
         }
+
+        if (shapeVertices.isNotEmpty()) {
+            val sMinE = shapeVertices.minOf { it.e }; val sMaxE = shapeVertices.maxOf { it.e }
+            val sMinN = shapeVertices.minOf { it.n }; val sMaxN = shapeVertices.maxOf { it.n }
+            if (!hasPoints && !hasDxf) {
+                minE = sMinE; maxE = sMaxE; minN = sMinN; maxN = sMaxN
+            } else {
+                minE = min(minE, sMinE); maxE = max(maxE, sMaxE)
+                minN = min(minN, sMinN); maxN = max(maxN, sMaxN)
+            }
+        }
         autoFit()
     }
 
@@ -458,7 +549,7 @@ class SurveyCanvasView @JvmOverloads constructor(
         if (is3DMode) { autoFit3D(); return }
         val hasPoints = points.isNotEmpty()
         val hasDxf = dxfData != null && !dxfData!!.isEmpty
-        if (!hasPoints && !hasDxf) return
+        if (!hasPoints && !hasDxf && lineShapes.isEmpty()) return
         
         val rangeE = maxE - minE; val rangeN = maxN - minN
         val viewW = width.toFloat(); val viewH = height.toFloat()
@@ -582,7 +673,8 @@ class SurveyCanvasView @JvmOverloads constructor(
     // ── onDraw 分派 ───────────────────────────────
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (points.isEmpty()) return
+        val hasDxfData = dxfData?.isEmpty == false
+        if (points.isEmpty() && lineShapes.isEmpty() && !hasDxfData) return
         if (is3DMode) draw3D(canvas) else draw2D(canvas)
         drawScaleBar(canvas)
         drawNorthArrow(canvas)
@@ -603,6 +695,9 @@ class SurveyCanvasView @JvmOverloads constructor(
 
         // DXF 底圖（最先畫，在最底層）
         if (showDxf) drawDxf2D(canvas)
+
+        // 可編輯線段
+        if (lineShapes.isNotEmpty()) drawLineShapes(canvas)
 
         // 原始連線
         if (showOriginalLines) {
@@ -947,6 +1042,398 @@ class SurveyCanvasView @JvmOverloads constructor(
     }
 
     fun clearDxfHighlight() { highlightedEntity = null; highlightedSnapPt = null; invalidate() }
+
+    // ══ 線段編輯：旋轉 / 平行拉伸 / 接點搬移 ══════
+
+    fun getLineShapes(): List<LineShape> = lineShapes.toList()
+
+    fun getSelectedShape(): LineShape? = lineShapes.getOrNull(selShapeIdx)
+
+    fun getSelectedSegmentIndex(): Int = selSegIdx
+
+    /** 直接覆寫線段集合（例如由 ViewModel 快取還原） */
+    fun setLineShapes(shapes: List<LineShape>) {
+        lineShapes.clear()
+        lineShapes.addAll(shapes)
+        lineUndoStack.clear()
+        clearLineSelection()
+        if (lineShapes.isNotEmpty() && points.isEmpty() && dxfData == null) calculateBounds()
+        notifyShapesChanged()
+        invalidate()
+    }
+
+    fun addLineShape(shape: LineShape) {
+        if (shape.vertices.size < 2) return
+        pushLineUndo()
+        lineShapes.add(shape)
+        selShapeIdx = lineShapes.lastIndex
+        selSegIdx = 0
+        selVertexIdx = -1
+        // 沒有其他圖資時需重算範圍，避免世界座標落在畫面外
+        if (points.isEmpty() && dxfData == null) calculateBounds()
+        notifyShapesChanged()
+        notifySegmentSelected()
+        invalidate()
+    }
+
+    fun deleteSelectedShape(): Boolean {
+        if (selShapeIdx !in lineShapes.indices) return false
+        pushLineUndo()
+        lineShapes.removeAt(selShapeIdx)
+        clearLineSelection()
+        notifyShapesChanged()
+        invalidate()
+        return true
+    }
+
+    fun clearLineShapes() {
+        if (lineShapes.isEmpty()) return
+        pushLineUndo()
+        lineShapes.clear()
+        clearLineSelection()
+        notifyShapesChanged()
+        invalidate()
+    }
+
+    fun clearLineSelection() {
+        selShapeIdx = -1; selSegIdx = -1; selVertexIdx = -1
+        notifySegmentSelected()
+        invalidate()
+    }
+
+    fun undoLineEdit(): Boolean {
+        val prev = lineUndoStack.removeLastOrNull() ?: return false
+        lineShapes.clear()
+        lineShapes.addAll(prev)
+        if (selShapeIdx !in lineShapes.indices) { selShapeIdx = -1; selSegIdx = -1; selVertexIdx = -1 }
+        else if (!lineShapes[selShapeIdx].isValidSegment(selSegIdx)) selSegIdx = 0
+        notifyShapesChanged()
+        notifySegmentSelected()
+        invalidate()
+        return true
+    }
+
+    fun canUndoLineEdit(): Boolean = lineUndoStack.isNotEmpty()
+
+    private fun pushLineUndo() {
+        lineUndoStack.addLast(lineShapes.toList())
+        while (lineUndoStack.size > MAX_UNDO) lineUndoStack.removeFirst()
+    }
+
+    private fun notifyShapesChanged() { onLineShapesChanged?.invoke(lineShapes.toList()) }
+
+    private fun notifySegmentSelected() {
+        val shape = lineShapes.getOrNull(selShapeIdx)
+        onLineSegmentSelected?.invoke(shape, selSegIdx)
+        onLineEditHud?.invoke(selectedSegmentSummary())
+    }
+
+    /** 目前選取線段的長度 / 方位角摘要 */
+    fun selectedSegmentSummary(): String? {
+        val shape = lineShapes.getOrNull(selShapeIdx) ?: return null
+        if (!shape.isValidSegment(selSegIdx)) return null
+        val len = LineEditMath.segmentLength(shape, selSegIdx)
+        val az = LineEditMath.segmentAzimuthDeg(shape, selSegIdx)
+        return String.format(
+            java.util.Locale.US, "第 %d 段／共 %d 段　長度 %.3f m　方位角 %.4f°",
+            selSegIdx + 1, shape.segmentCount, len, az
+        )
+    }
+
+    // ── 數值輸入編輯 ─────────────────────────────
+    /** 旋轉選取線段（度，逆時針為正） */
+    fun rotateSelectedSegmentByDeg(deg: Double, extendNeighbors: Boolean = extendNeighborsOnRotate): Boolean {
+        val shape = lineShapes.getOrNull(selShapeIdx) ?: return false
+        if (!shape.isValidSegment(selSegIdx)) return false
+        pushLineUndo()
+        lineShapes[selShapeIdx] = LineEditMath.rotateSegment(
+            shape, selSegIdx, Math.toRadians(deg), rotatePivot, extendNeighbors
+        )
+        notifyShapesChanged(); notifySegmentSelected(); invalidate()
+        return true
+    }
+
+    /** 平行拉伸選取線段（公尺，正值往線段左法線方向） */
+    fun parallelStretchSelectedBy(distance: Double): Boolean {
+        val shape = lineShapes.getOrNull(selShapeIdx) ?: return false
+        if (!shape.isValidSegment(selSegIdx)) return false
+        pushLineUndo()
+        lineShapes[selShapeIdx] = LineEditMath.parallelStretch(shape, selSegIdx, distance)
+        notifyShapesChanged(); notifySegmentSelected(); invalidate()
+        return true
+    }
+
+    /** 整體旋轉選取圖形（度，以形心為軸心） */
+    fun rotateSelectedShapeByDeg(deg: Double): Boolean {
+        val shape = lineShapes.getOrNull(selShapeIdx) ?: return false
+        pushLineUndo()
+        lineShapes[selShapeIdx] = LineEditMath.rotateShape(shape, Math.toRadians(deg))
+        notifyShapesChanged(); notifySegmentSelected(); invalidate()
+        return true
+    }
+
+    // ── 命中測試 ─────────────────────────────────
+    private fun findSegmentAt(sx: Float, sy: Float): Pair<Int, Int>? {
+        if (lineShapes.isEmpty()) return null
+        val (we, wn) = screenToWorld(sx, sy)
+        var bestDist = 36.0 / scaleFactor
+        var best: Pair<Int, Int>? = null
+        lineShapes.forEachIndexed { si, shape ->
+            for (i in 0 until shape.segmentCount) {
+                val a = shape.segStart(i); val b = shape.segEnd(i)
+                val d = LineEditMath.pointToSegmentDist(we, wn, a.e, a.n, b.e, b.n)
+                if (d < bestDist) { bestDist = d; best = si to i }
+            }
+        }
+        return best
+    }
+
+    private fun findVertexAt(sx: Float, sy: Float): Pair<Int, Int>? {
+        if (lineShapes.isEmpty()) return null
+        val (we, wn) = screenToWorld(sx, sy)
+        var bestDist = 44.0 / scaleFactor
+        var best: Pair<Int, Int>? = null
+        lineShapes.forEachIndexed { si, shape ->
+            shape.vertices.forEachIndexed { vi, v ->
+                val d = sqrt((we - v.e) * (we - v.e) + (wn - v.n) * (wn - v.n))
+                if (d < bestDist) { bestDist = d; best = si to vi }
+            }
+        }
+        return best
+    }
+
+    private fun selectSegmentAt(sx: Float, sy: Float): Boolean {
+        val hit = findSegmentAt(sx, sy) ?: return false
+        selShapeIdx = hit.first
+        selSegIdx = hit.second
+        selVertexIdx = -1
+        notifySegmentSelected()
+        invalidate()
+        return true
+    }
+
+    // ── 拖曳編輯 ─────────────────────────────────
+    private fun handleLineEditTouch(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (event.pointerCount > 1) return false
+                val (we, wn) = screenToWorld(event.x, event.y)
+                when (lineEditMode) {
+                    LineEditMode.VERTEX -> {
+                        val hit = findVertexAt(event.x, event.y) ?: return false
+                        selShapeIdx = hit.first
+                        selVertexIdx = hit.second
+                        val shape = lineShapes[selShapeIdx]
+                        if (!shape.isValidSegment(selSegIdx)) selSegIdx = 0
+                        beginLineDrag(we, wn, shape)
+                        notifySegmentSelected()
+                        invalidate()
+                        return true
+                    }
+                    LineEditMode.ROTATE, LineEditMode.STRETCH -> {
+                        val hit = findSegmentAt(event.x, event.y) ?: return false
+                        selShapeIdx = hit.first
+                        selSegIdx = hit.second
+                        selVertexIdx = -1
+                        val shape = lineShapes[selShapeIdx]
+                        val a = shape.segStart(selSegIdx); val b = shape.segEnd(selSegIdx)
+                        val pivot = when (rotatePivot) {
+                            RotatePivot.START -> a
+                            RotatePivot.END -> b
+                            RotatePivot.MIDPOINT -> LineVertex((a.e + b.e) / 2.0, (a.n + b.n) / 2.0)
+                        }
+                        dragPivotE = pivot.e; dragPivotN = pivot.n
+                        beginLineDrag(we, wn, shape)
+                        notifySegmentSelected()
+                        invalidate()
+                        return true
+                    }
+                    else -> return false
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!isLineDragging) return false
+                if (event.pointerCount > 1) { finishLineDrag(); return true }
+                val (we, wn) = screenToWorld(event.x, event.y)
+                applyLineDrag(we, wn)
+                return true
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (!isLineDragging) return false
+                finishLineDrag(); return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!isLineDragging) return false
+                finishLineDrag(); return true
+            }
+        }
+        return false
+    }
+
+    private fun beginLineDrag(we: Double, wn: Double, shape: LineShape) {
+        isLineDragging = true
+        lineDragUndoPushed = false
+        dragBaseShape = shape
+        dragStartE = we
+        dragStartN = wn
+        parent?.requestDisallowInterceptTouchEvent(true)
+        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+    }
+
+    private fun cancelLineDrag() {
+        isLineDragging = false
+        lineDragUndoPushed = false
+        dragBaseShape = null
+    }
+
+    private fun finishLineDrag() {
+        val changed = lineDragUndoPushed
+        cancelLineDrag()
+        parent?.requestDisallowInterceptTouchEvent(false)
+        if (changed) notifyShapesChanged()
+        onLineEditHud?.invoke(selectedSegmentSummary())
+        invalidate()
+    }
+
+    private fun applyLineDrag(we: Double, wn: Double) {
+        val base = dragBaseShape ?: return
+        if (selShapeIdx !in lineShapes.indices) return
+
+        val edited: LineShape
+        val hud: String
+        when (lineEditMode) {
+            LineEditMode.ROTATE -> {
+                if (!base.isValidSegment(selSegIdx)) return
+                val a0 = atan2(dragStartN - dragPivotN, dragStartE - dragPivotE)
+                val a1 = atan2(wn - dragPivotN, we - dragPivotE)
+                var deltaDeg = Math.toDegrees(a1 - a0)
+                while (deltaDeg > 180.0) deltaDeg -= 360.0
+                while (deltaDeg < -180.0) deltaDeg += 360.0
+                if (rotateSnapDeg > 0.0) deltaDeg = Math.round(deltaDeg / rotateSnapDeg) * rotateSnapDeg
+                if (abs(deltaDeg) < 1e-4) return
+                edited = LineEditMath.rotateSegment(
+                    base, selSegIdx, Math.toRadians(deltaDeg), rotatePivot, extendNeighborsOnRotate
+                )
+                hud = String.format(
+                    java.util.Locale.US, "旋轉 %+.3f°　長度 %.3f m　方位角 %.4f°",
+                    deltaDeg, LineEditMath.segmentLength(edited, selSegIdx),
+                    LineEditMath.segmentAzimuthDeg(edited, selSegIdx)
+                )
+            }
+            LineEditMode.STRETCH -> {
+                if (!base.isValidSegment(selSegIdx)) return
+                val normal = LineEditMath.segmentNormal(base, selSegIdx) ?: return
+                val offset = (we - dragStartE) * normal.first + (wn - dragStartN) * normal.second
+                if (abs(offset) < 1e-6) return
+                edited = LineEditMath.parallelStretch(base, selSegIdx, offset)
+                val prevLen = if (edited.hasPrevSegment(selSegIdx))
+                    LineEditMath.segmentLength(edited, (selSegIdx - 1 + edited.segmentCount) % edited.segmentCount) else 0.0
+                val nextLen = if (edited.hasNextSegment(selSegIdx))
+                    LineEditMath.segmentLength(edited, (selSegIdx + 1) % edited.segmentCount) else 0.0
+                hud = String.format(
+                    java.util.Locale.US, "平行拉伸 %+.3f m　鄰線 %.3f / %.3f m",
+                    offset, prevLen, nextLen
+                )
+            }
+            LineEditMode.VERTEX -> {
+                if (selVertexIdx !in base.vertices.indices) return
+                edited = LineEditMath.moveVertex(base, selVertexIdx, we, wn)
+                hud = String.format(java.util.Locale.US, "接點 %d　E=%.3f　N=%.3f", selVertexIdx + 1, we, wn)
+            }
+            else -> return
+        }
+
+        if (!lineDragUndoPushed) {
+            // 真正產生位移後才記錄復原點，避免單純點選也塞進復原堆疊
+            lineUndoStack.addLast(lineShapes.toList())
+            while (lineUndoStack.size > MAX_UNDO) lineUndoStack.removeFirst()
+            lineDragUndoPushed = true
+        }
+        lineShapes[selShapeIdx] = edited
+        onLineEditHud?.invoke(hud)
+        invalidate()
+    }
+
+    // ── 線段繪製 ─────────────────────────────────
+    private fun drawLineShapes(canvas: Canvas) {
+        lineShapePaint.strokeWidth = 4f / scaleFactor
+        lineShapeSelPaint.strokeWidth = 9f / scaleFactor
+        linePivotPaint.strokeWidth = 2.5f / scaleFactor
+        val vr = 6f / scaleFactor
+
+        lineShapes.forEachIndexed { si, shape ->
+            if (shape.vertices.size < 2) return@forEachIndexed
+            val path = Path()
+            shape.vertices.forEachIndexed { i, v ->
+                val p = worldToLocal(v.e, v.n)
+                if (i == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+            }
+            if (shape.closed) path.close()
+            canvas.drawPath(path, lineShapePaint)
+
+            // 選取線段高亮 + 軸心 / 法線提示
+            if (si == selShapeIdx && shape.isValidSegment(selSegIdx)) {
+                val a = shape.segStart(selSegIdx); val b = shape.segEnd(selSegIdx)
+                val pa = worldToLocal(a.e, a.n); val pb = worldToLocal(b.e, b.n)
+                canvas.drawLine(pa.x, pa.y, pb.x, pb.y, lineShapeSelPaint)
+
+                val mid = PointF((pa.x + pb.x) / 2f, (pa.y + pb.y) / 2f)
+                when (lineEditMode) {
+                    LineEditMode.ROTATE -> {
+                        val pivot = when (rotatePivot) {
+                            RotatePivot.START -> pa
+                            RotatePivot.END -> pb
+                            RotatePivot.MIDPOINT -> mid
+                        }
+                        canvas.drawCircle(pivot.x, pivot.y, 12f / scaleFactor, linePivotPaint)
+                        canvas.drawCircle(pivot.x, pivot.y, 3f / scaleFactor, linePivotPaint)
+                    }
+                    LineEditMode.STRETCH -> {
+                        LineEditMath.segmentNormal(shape, selSegIdx)?.let { (ne, nn) ->
+                            val armLocal = 26f / scaleFactor
+                            canvas.drawLine(
+                                mid.x - ne.toFloat() * armLocal, mid.y - nn.toFloat() * armLocal,
+                                mid.x + ne.toFloat() * armLocal, mid.y + nn.toFloat() * armLocal,
+                                linePivotPaint
+                            )
+                        }
+                    }
+                    else -> {}
+                }
+
+                // 長度 / 方位角標註
+                val label = String.format(
+                    java.util.Locale.US, "%.3f m  %.4f°",
+                    LineEditMath.segmentLength(shape, selSegIdx),
+                    LineEditMath.segmentAzimuthDeg(shape, selSegIdx)
+                )
+                canvas.save()
+                canvas.translate(mid.x, mid.y)
+                canvas.scale(1f / scaleFactor, -1f / scaleFactor)
+                canvas.drawText(label, 0f, -14f, lineLabelPaint)
+                canvas.restore()
+            }
+
+            // 接點（頂點）
+            if (lineEditMode != LineEditMode.OFF) {
+                shape.vertices.forEachIndexed { vi, v ->
+                    val p = worldToLocal(v.e, v.n)
+                    val paint = if (si == selShapeIdx && vi == selVertexIdx) lineVertexSelPaint else lineVertexPaint
+                    canvas.drawRect(p.x - vr, p.y - vr, p.x + vr, p.y + vr, paint)
+                }
+            }
+
+            // 圖形名稱
+            if (shape.name.isNotEmpty()) {
+                val p = worldToLocal(shape.vertices[0].e, shape.vertices[0].n)
+                canvas.save()
+                canvas.translate(p.x, p.y)
+                canvas.scale(1f / scaleFactor, -1f / scaleFactor)
+                canvas.drawText(shape.name, 0f, 28f, lineLabelPaint)
+                canvas.restore()
+            }
+        }
+    }
 
     // ── 量測點位公開 API ──────────────────────────
     fun addMeasurePoint(snap: DxfSnapPoint) { measurePoints.add(snap); invalidate() }

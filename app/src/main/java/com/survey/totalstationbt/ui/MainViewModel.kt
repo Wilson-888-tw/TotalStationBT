@@ -177,6 +177,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         var cachedDxfData: com.survey.totalstationbt.model.DxfData? = null
         var cachedDxfTransform: com.survey.totalstationbt.model.DxfTransform = com.survey.totalstationbt.model.DxfTransform.IDENTITY
+
+        // ── 可編輯線段快取（跨 Activity / 旋轉螢幕保留）──
+        var cachedLineShapes: List<com.survey.totalstationbt.model.LineShape> = emptyList()
     }
 
     sealed class ExportResult {

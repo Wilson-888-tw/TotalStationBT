@@ -39,6 +39,12 @@ import com.survey.totalstationbt.model.DxfEntity
 import com.survey.totalstationbt.model.SnapType
 import com.survey.totalstationbt.parser.DxfParser
 import com.survey.totalstationbt.databinding.DialogDxfAlignBinding
+import com.survey.totalstationbt.databinding.DialogLineValueBinding
+import com.survey.totalstationbt.model.LineEditMode
+import com.survey.totalstationbt.model.LineShape
+import com.survey.totalstationbt.model.LineVertex
+import com.survey.totalstationbt.model.RotatePivot
+import com.survey.totalstationbt.utils.LineEditMath
 import com.survey.totalstationbt.databinding.DialogCompassCalibrationBinding
 import kotlin.math.atan2
 import kotlin.math.sqrt
@@ -71,6 +77,10 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     // Snap points pre-filled for alignment dialog
     private var presetSnap1: DxfSnapPoint? = null
     private var presetSnap2: DxfSnapPoint? = null
+
+    // 線段編輯
+    private var lineEditEnabled = false
+    private var lineShapeSeq = 1
 
     private val qrScanLauncher = registerForActivityResult(ScanContract()) { result ->
         val content = result.contents ?: return@registerForActivityResult
@@ -125,6 +135,12 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         currentDxfData?.let { data ->
             binding.canvasView.setDxf(data, currentDxfTransform)
             invalidateOptionsMenu()
+        }
+
+        // 恢復線段快取
+        if (MainViewModel.cachedLineShapes.isNotEmpty()) {
+            binding.canvasView.setLineShapes(MainViewModel.cachedLineShapes)
+            lineShapeSeq = MainViewModel.cachedLineShapes.size + 1
         }
     }
 
@@ -239,6 +255,10 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             R.id.menu_toggle_3d -> {
                 item.isChecked = !item.isChecked
+                if (item.isChecked && lineEditEnabled) {
+                    setLineEditEnabled(false)
+                    showSnackbar("3D 視圖不支援線段編輯，已關閉編輯模式")
+                }
                 binding.canvasView.is3DMode = item.isChecked
                 binding.toggleGroup3dPresets.visibility =
                     if (item.isChecked) android.view.View.VISIBLE else android.view.View.GONE
@@ -266,6 +286,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             R.id.menu_dxf_query -> {
                 item.isChecked = !item.isChecked
+                if (item.isChecked && lineEditEnabled) setLineEditEnabled(false)
                 val newMode = if (item.isChecked) DxfTapMode.QUERY else DxfTapMode.NONE
                 binding.canvasView.dxfTapMode = newMode
                 // Ensure snap mode is off
@@ -275,6 +296,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             R.id.menu_dxf_snap -> {
                 item.isChecked = !item.isChecked
+                if (item.isChecked && lineEditEnabled) setLineEditEnabled(false)
                 val newMode = if (item.isChecked) DxfTapMode.SNAP else DxfTapMode.NONE
                 binding.canvasView.dxfTapMode = newMode
                 invalidateOptionsMenu()
@@ -283,6 +305,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             R.id.menu_dxf_measure -> {
                 item.isChecked = !item.isChecked
+                if (item.isChecked && lineEditEnabled) setLineEditEnabled(false)
                 val newMode = if (item.isChecked) DxfTapMode.MEASURE else DxfTapMode.NONE
                 binding.canvasView.dxfTapMode = newMode
                 invalidateOptionsMenu()
@@ -310,6 +333,7 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             R.id.menu_dxf_relative -> {
                 item.isChecked = !item.isChecked
+                if (item.isChecked && lineEditEnabled) setLineEditEnabled(false)
                 val newMode = if (item.isChecked) DxfTapMode.RELATIVE else DxfTapMode.NONE
                 binding.canvasView.dxfTapMode = newMode
                 if (!item.isChecked) binding.canvasView.clearRelativePoints()
@@ -323,11 +347,63 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 showSnackbar("基準點已清除")
                 true
             }
+            R.id.menu_line_edit -> {
+                setLineEditEnabled(!lineEditEnabled)
+                true
+            }
+            R.id.menu_line_from_points -> {
+                createShapeFromSelectedPoints()
+                true
+            }
+            R.id.menu_line_rotate_value -> {
+                showLineValueDialog(LineValueOp.ROTATE_SEGMENT)
+                true
+            }
+            R.id.menu_line_stretch_value -> {
+                showLineValueDialog(LineValueOp.PARALLEL_STRETCH)
+                true
+            }
+            R.id.menu_line_rotate_shape -> {
+                showLineValueDialog(LineValueOp.ROTATE_SHAPE)
+                true
+            }
+            R.id.menu_line_info -> {
+                showLineShapeInfoDialog()
+                true
+            }
+            R.id.menu_line_undo -> {
+                if (binding.canvasView.undoLineEdit()) showSnackbar("已復原上一步線段編輯")
+                else showSnackbar("沒有可復原的線段編輯")
+                true
+            }
+            R.id.menu_line_delete -> {
+                if (binding.canvasView.deleteSelectedShape()) showSnackbar("已刪除選取線段")
+                else showSnackbar("尚未選取線段")
+                true
+            }
+            R.id.menu_line_clear -> {
+                if (binding.canvasView.getLineShapes().isEmpty()) {
+                    showSnackbar("目前沒有線段")
+                } else {
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("清除全部線段")
+                        .setMessage("確定要刪除所有可編輯線段嗎？（可用「復原線段編輯」還原）")
+                        .setPositiveButton("清除") { _, _ ->
+                            binding.canvasView.clearLineShapes()
+                            showSnackbar("線段已全部清除")
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
     }
 
     private fun setupListeners() {
+        setupLineEditListeners()
+
         // DXF 圖元查詢回呼
         binding.canvasView.onDxfEntityTapped = { entity -> showDxfEntityInfoDialog(entity) }
         // DXF 捕捉點回呼
@@ -404,7 +480,10 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun updateCalcButton(selected: List<PointEntity>) {
-        if (selected.isEmpty()) {
+        if (lineEditEnabled) {
+            // 線段編輯工具列佔用底部空間，避免與 FAB 重疊
+            binding.fabCalc.hide()
+        } else if (selected.isEmpty()) {
             binding.fabCalc.hide()
         } else {
             binding.fabCalc.show()
@@ -701,6 +780,19 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         menu.findItem(R.id.menu_dxf_measure_result)?.isEnabled = hasMeasure
         menu.findItem(R.id.menu_dxf_measure_undo)?.isEnabled   = hasMeasure
         menu.findItem(R.id.menu_dxf_measure_clear)?.isEnabled  = hasMeasure
+
+        // 線段編輯
+        val hasShapes = binding.canvasView.getLineShapes().isNotEmpty()
+        val hasSelectedSeg = binding.canvasView.getSelectedShape()
+            ?.isValidSegment(binding.canvasView.getSelectedSegmentIndex()) == true
+        menu.findItem(R.id.menu_line_edit)?.isChecked = lineEditEnabled
+        menu.findItem(R.id.menu_line_rotate_value)?.isEnabled  = hasSelectedSeg
+        menu.findItem(R.id.menu_line_stretch_value)?.isEnabled = hasSelectedSeg
+        menu.findItem(R.id.menu_line_rotate_shape)?.isEnabled  = binding.canvasView.getSelectedShape() != null
+        menu.findItem(R.id.menu_line_delete)?.isEnabled = binding.canvasView.getSelectedShape() != null
+        menu.findItem(R.id.menu_line_info)?.isEnabled   = hasShapes
+        menu.findItem(R.id.menu_line_clear)?.isEnabled  = hasShapes
+        menu.findItem(R.id.menu_line_undo)?.isEnabled   = binding.canvasView.canUndoLineEdit()
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -1124,6 +1216,288 @@ class MapActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         dialogBinding.btnSkipCalibration.setOnClickListener { dialog.dismiss() }
         dialog.show()
+    }
+
+    // ══ 線段編輯：旋轉 / 平行拉伸 / 接點 ══════════
+
+    private enum class LineValueOp { ROTATE_SEGMENT, PARALLEL_STRETCH, ROTATE_SHAPE }
+
+    private fun setupLineEditListeners() {
+        val canvas = binding.canvasView
+
+        canvas.onLineShapesChanged = { shapes ->
+            MainViewModel.cachedLineShapes = shapes
+            invalidateOptionsMenu()
+        }
+        canvas.onLineSegmentSelected = { _, _ -> invalidateOptionsMenu() }
+        canvas.onLineEditHud = { text ->
+            binding.tvLineEditHud.text = text ?: lineEditDefaultHint()
+        }
+        canvas.onDxfEntityForEdit = { entity -> confirmConvertDxfEntity(entity) }
+
+        binding.toggleLineMode.addOnButtonCheckedListener { _, _, isChecked ->
+            if (isChecked) applyLineModeFromToggle()
+        }
+        binding.togglePivot.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            canvas.rotatePivot = when (checkedId) {
+                R.id.btnPivotStart -> RotatePivot.START
+                R.id.btnPivotEnd   -> RotatePivot.END
+                else               -> RotatePivot.MIDPOINT
+            }
+            binding.tvLineEditHud.text = canvas.selectedSegmentSummary() ?: lineEditDefaultHint()
+        }
+        binding.btnLineUndo.setOnClickListener {
+            if (canvas.undoLineEdit()) showSnackbar("已復原上一步線段編輯")
+            else showSnackbar("沒有可復原的線段編輯")
+        }
+        binding.btnLineValue.setOnClickListener { showLineValueOpChooser() }
+    }
+
+    private fun applyLineModeFromToggle() {
+        if (!lineEditEnabled) return
+        binding.canvasView.lineEditMode = when (binding.toggleLineMode.checkedButtonId) {
+            R.id.btnLineModeRotate  -> LineEditMode.ROTATE
+            R.id.btnLineModeStretch -> LineEditMode.STRETCH
+            R.id.btnLineModeVertex  -> LineEditMode.VERTEX
+            else                    -> LineEditMode.SELECT
+        }
+        binding.tvLineEditHud.text =
+            binding.canvasView.selectedSegmentSummary() ?: lineEditDefaultHint()
+    }
+
+    private fun lineEditDefaultHint(): String = when (binding.canvasView.lineEditMode) {
+        LineEditMode.ROTATE  -> "旋轉：按住線段拖曳即可轉動（軸心可切換起點／中點／終點）"
+        LineEditMode.STRETCH -> "平行拉伸：按住線段往垂直方向拖曳，鄰線自動伸縮、接點保持相連"
+        LineEditMode.VERTEX  -> "接點：按住白色接點拖曳即可搬移"
+        else                 -> "請點選要編輯的線段"
+    }
+
+    private fun setLineEditEnabled(enabled: Boolean) {
+        if (enabled && binding.canvasView.is3DMode) {
+            showSnackbar("請先切回 2D 平面圖再使用線段編輯")
+            return
+        }
+        lineEditEnabled = enabled
+        binding.layoutLineEdit.visibility =
+            if (enabled) android.view.View.VISIBLE else android.view.View.GONE
+
+        if (enabled) {
+            // 與 DXF 點選模式互斥，避免同一手勢兩邊搶
+            binding.canvasView.dxfTapMode = DxfTapMode.NONE
+            binding.fabCalc.hide()
+            if (binding.toggleLineMode.checkedButtonId == android.view.View.NO_ID)
+                binding.toggleLineMode.check(R.id.btnLineModeRotate)
+            if (binding.togglePivot.checkedButtonId == android.view.View.NO_ID)
+                binding.togglePivot.check(R.id.btnPivotMid)
+            applyLineModeFromToggle()
+            if (binding.canvasView.getLineShapes().isEmpty())
+                showSnackbar("尚無線段：請用「由選取點建立線段」，或點選 DXF 圖元轉為線段")
+        } else {
+            binding.canvasView.lineEditMode = LineEditMode.OFF
+        }
+        invalidateOptionsMenu()
+    }
+
+    private fun nextShapeName(): String = "L${lineShapeSeq++}"
+
+    private fun createShapeFromSelectedPoints() {
+        val selected = binding.canvasView.getSelectedPoints()
+            .filter { it.easting != null && it.northing != null }
+        if (selected.size < 2) {
+            showSnackbar("請先在圖面依序點選 2 個以上的點位")
+            return
+        }
+        val vertices = selected.map { LineVertex(it.easting!!, it.northing!!) }
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle("建立可編輯線段")
+            .setMessage("依選取順序建立：${selected.joinToString("→") { it.pointName }}")
+            .setPositiveButton("折線") { _, _ -> addShapeFromVertices(vertices, false) }
+            .setNegativeButton("取消", null)
+        if (vertices.size >= 3) {
+            builder.setNeutralButton("封閉多邊形") { _, _ -> addShapeFromVertices(vertices, true) }
+        }
+        builder.show()
+    }
+
+    private fun addShapeFromVertices(vertices: List<LineVertex>, closed: Boolean) {
+        val shape = LineShape(System.nanoTime(), nextShapeName(), vertices, closed && vertices.size >= 3)
+        binding.canvasView.addLineShape(shape)
+        binding.canvasView.clearSelection()
+        if (!lineEditEnabled) setLineEditEnabled(true)
+        showSnackbar("已建立線段 ${shape.name}（${shape.segmentCount} 段）")
+    }
+
+    /** 把 DXF 圖元複製成可編輯線段（底圖本身不變動） */
+    private fun confirmConvertDxfEntity(entity: DxfEntity) {
+        val transform = currentDxfTransform
+        val pair: Pair<List<LineVertex>, Boolean>? = when (entity) {
+            is DxfEntity.Line -> {
+                val (e1, n1) = transform.toWorld(entity.x1, entity.y1)
+                val (e2, n2) = transform.toWorld(entity.x2, entity.y2)
+                listOf(LineVertex(e1, n1), LineVertex(e2, n2)) to false
+            }
+            is DxfEntity.Polyline -> {
+                if (entity.vertices.size < 2) null
+                else entity.vertices.map { v ->
+                    val (e, n) = transform.toWorld(v.x.toDouble(), v.y.toDouble())
+                    LineVertex(e, n)
+                } to entity.closed
+            }
+            else -> null
+        }
+        if (pair == null) {
+            showSnackbar("圓／弧圖元尚不支援轉為可編輯線段")
+            return
+        }
+        val (vertices, closed) = pair
+        MaterialAlertDialogBuilder(this)
+            .setTitle("轉為可編輯線段")
+            .setMessage("將此 DXF 圖元（${vertices.size} 個節點）複製為可編輯線段？\n原始底圖不會被修改。")
+            .setPositiveButton("建立") { _, _ -> addShapeFromVertices(vertices, closed) }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showLineValueOpChooser() {
+        val items = arrayOf("旋轉線段（輸入角度）", "平行拉伸（輸入距離）", "整體旋轉圖形（輸入角度）")
+        MaterialAlertDialogBuilder(this)
+            .setTitle("數值編輯")
+            .setItems(items) { _, which ->
+                showLineValueDialog(
+                    when (which) {
+                        0 -> LineValueOp.ROTATE_SEGMENT
+                        1 -> LineValueOp.PARALLEL_STRETCH
+                        else -> LineValueOp.ROTATE_SHAPE
+                    }
+                )
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showLineValueDialog(op: LineValueOp) {
+        val canvas = binding.canvasView
+        val shape = canvas.getSelectedShape()
+        if (shape == null) {
+            showSnackbar("請先點選要編輯的線段")
+            return
+        }
+        val segIdx = canvas.getSelectedSegmentIndex()
+        if (op != LineValueOp.ROTATE_SHAPE && !shape.isValidSegment(segIdx)) {
+            showSnackbar("請先點選要編輯的線段")
+            return
+        }
+
+        val dialogBinding = DialogLineValueBinding.inflate(layoutInflater)
+        dialogBinding.tvLineValueInfo.text = if (op == LineValueOp.ROTATE_SHAPE) {
+            String.format(
+                Locale.US, "圖形 %s：%d 個接點、%d 段\n周長 %.3f m",
+                shape.name, shape.vertices.size, shape.segmentCount, LineEditMath.perimeter(shape)
+            )
+        } else {
+            String.format(
+                Locale.US, "第 %d 段／共 %d 段\n長度 %.3f m　方位角 %.4f°",
+                segIdx + 1, shape.segmentCount,
+                LineEditMath.segmentLength(shape, segIdx),
+                LineEditMath.segmentAzimuthDeg(shape, segIdx)
+            )
+        }
+
+        val pivotLabel = when (canvas.rotatePivot) {
+            RotatePivot.START -> "起點"
+            RotatePivot.END -> "終點"
+            RotatePivot.MIDPOINT -> "中點"
+        }
+        val title: String = when (op) {
+            LineValueOp.ROTATE_SEGMENT -> {
+                dialogBinding.tilLineValue.hint = "旋轉角度（°，逆時針為正）"
+                dialogBinding.cbLineExtendNeighbors.visibility = android.view.View.VISIBLE
+                dialogBinding.cbLineExtendNeighbors.isChecked = canvas.extendNeighborsOnRotate
+                dialogBinding.tvLineValueHint.text =
+                    "軸心：$pivotLabel（可於工具列切換）。\n未勾選時鄰線接點跟著轉動；勾選後鄰線保持原方向，接點以交點自動延伸。"
+                "旋轉線段"
+            }
+            LineValueOp.PARALLEL_STRETCH -> {
+                dialogBinding.tilLineValue.hint = "平行位移（m）"
+                dialogBinding.cbLineExtendNeighbors.visibility = android.view.View.GONE
+                dialogBinding.tvLineValueHint.text =
+                    "線段保持平行移動；正值＝往起點→終點方向的左側。\n垂直方向的鄰線會自動變長或縮短，接點維持相連。"
+                "平行拉伸"
+            }
+            LineValueOp.ROTATE_SHAPE -> {
+                dialogBinding.tilLineValue.hint = "旋轉角度（°，逆時針為正）"
+                dialogBinding.cbLineExtendNeighbors.visibility = android.view.View.GONE
+                dialogBinding.tvLineValueHint.text = "以圖形形心為軸心，整體轉動所有線段。"
+                "整體旋轉圖形"
+            }
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setView(dialogBinding.root)
+            .setPositiveButton("套用") { _, _ ->
+                val value = dialogBinding.etLineValue.text?.toString()?.trim()?.toDoubleOrNull()
+                if (value == null || value == 0.0) {
+                    showSnackbar("請輸入有效數值")
+                    return@setPositiveButton
+                }
+                when (op) {
+                    LineValueOp.ROTATE_SEGMENT -> {
+                        canvas.extendNeighborsOnRotate = dialogBinding.cbLineExtendNeighbors.isChecked
+                        canvas.rotateSelectedSegmentByDeg(value)
+                        showSnackbar(String.format(Locale.US, "第 %d 段已旋轉 %+.4f°（軸心：%s）", segIdx + 1, value, pivotLabel))
+                    }
+                    LineValueOp.PARALLEL_STRETCH -> {
+                        canvas.parallelStretchSelectedBy(value)
+                        showSnackbar(String.format(Locale.US, "第 %d 段已平行位移 %+.4f m", segIdx + 1, value))
+                    }
+                    LineValueOp.ROTATE_SHAPE -> {
+                        canvas.rotateSelectedShapeByDeg(value)
+                        showSnackbar(String.format(Locale.US, "圖形 %s 已整體旋轉 %+.4f°", shape.name, value))
+                    }
+                }
+                binding.tvLineEditHud.text = canvas.selectedSegmentSummary() ?: lineEditDefaultHint()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showLineShapeInfoDialog() {
+        val shapes = binding.canvasView.getLineShapes()
+        if (shapes.isEmpty()) {
+            showSnackbar("目前沒有線段")
+            return
+        }
+        val selected = binding.canvasView.getSelectedShape()
+        val text = buildString {
+            shapes.forEach { shape ->
+                append("【${shape.name}${if (shape.closed) "（封閉）" else ""}")
+                if (selected != null && selected.id == shape.id) append("　← 選取中")
+                append("】\n")
+                shape.vertices.forEachIndexed { i, v ->
+                    append(String.format(Locale.US, "  接點%d  E=%.3f  N=%.3f\n", i + 1, v.e, v.n))
+                }
+                for (i in 0 until shape.segmentCount) {
+                    append(String.format(
+                        Locale.US, "  第%d段  長度 %.3f m  方位角 %.4f°\n",
+                        i + 1, LineEditMath.segmentLength(shape, i), LineEditMath.segmentAzimuthDeg(shape, i)
+                    ))
+                }
+                append(String.format(Locale.US, "  周長 %.3f m", LineEditMath.perimeter(shape)))
+                if (shape.closed) {
+                    val area = LineEditMath.area(shape)
+                    append(String.format(Locale.US, "　面積 %.3f m²（%.4f 坪）", area, area / 3.3058))
+                }
+                append("\n\n")
+            }
+        }.trimEnd()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("線段成果")
+            .setMessage(text)
+            .setPositiveButton("關閉", null)
+            .show()
     }
 
     private fun showSnackbar(msg: String) {
